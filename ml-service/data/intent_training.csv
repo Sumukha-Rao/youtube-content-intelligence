@@ -1,0 +1,53 @@
+text,label
+"Please make a video on Kafka with Spring Boot",CONTENT_REQUEST
+"Can you do a tutorial on Docker networking",CONTENT_REQUEST
+"Please cover AWS Lambda cold starts next",CONTENT_REQUEST
+"Make a real world project with microservices",CONTENT_REQUEST
+"Could you teach Kubernetes from scratch",CONTENT_REQUEST
+"Do a deep dive on Spring Security please",CONTENT_REQUEST
+"Please create a series on system design",CONTENT_REQUEST
+"Can you make a video about PostgreSQL indexing",CONTENT_REQUEST
+"We need a tutorial on CI CD pipelines",CONTENT_REQUEST
+"Please explain event driven architecture",CONTENT_REQUEST
+"How do I configure the database connection",QUESTION
+"What is the difference between a volume and a bind mount",QUESTION
+"Why use constructor injection over field injection",QUESTION
+"Which Java version do you recommend",QUESTION
+"How does the consumer group rebalancing work",QUESTION
+"What IDE are you using here",QUESTION
+"Where can I find the source code",QUESTION
+"How do I fix this dependency error",QUESTION
+"Is this approach production ready",QUESTION
+"What port does the service run on",QUESTION
+"This tutorial was excellent thank you",PRAISE
+"Amazing content, super clear and helpful",PRAISE
+"Best explanation I have seen, well done",PRAISE
+"Love your videos, keep them coming",PRAISE
+"Fantastic walkthrough, very practical",PRAISE
+"You are a great teacher, appreciate it",PRAISE
+"This helped me a lot, thanks so much",PRAISE
+"Brilliant, subscribed right away",PRAISE
+"The explanation was confusing and unclear",CRITICISM
+"This part was rushed and hard to follow",CRITICISM
+"The code does not actually compile",CRITICISM
+"That is not the correct way to do it",CRITICISM
+"You skipped the most important step",CRITICISM
+"The pacing was too fast to understand",CRITICISM
+"The audio is too quiet in this video",COMPLAINT
+"Too many ads interrupting the content",COMPLAINT
+"The video keeps buffering for me",COMPLAINT
+"The screen is too small to read the code",COMPLAINT
+"Why is the background music so loud",COMPLAINT
+"The download link is broken",COMPLAINT
+"You should add subtitles to your videos",SUGGESTION
+"It would help to zoom in on the terminal",SUGGESTION
+"Consider adding chapters to the timeline",SUGGESTION
+"Maybe show the folder structure first",SUGGESTION
+"You should link the repo in the description",SUGGESTION
+"It would be better with dark mode in the editor",SUGGESTION
+"Nice weather today",OTHER
+"First",OTHER
+"Who else is watching in 2026",OTHER
+"Hello everyone",OTHER
+"Just passing by",OTHER
+"Random comment here",OTHER

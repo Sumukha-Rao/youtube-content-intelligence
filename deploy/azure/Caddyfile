@@ -1,0 +1,16 @@
+# Single public origin for the whole app.
+#   /api/*  -> Spring Boot backend
+#   /*      -> static frontend (nginx)
+# Caddy obtains and renews a Let's Encrypt certificate for SITE_ADDRESS automatically,
+# so everything is served over HTTPS and the browser never faces a cross-origin call.
+{$SITE_ADDRESS} {
+	encode gzip
+
+	handle /api/* {
+		reverse_proxy backend:8080
+	}
+
+	handle {
+		reverse_proxy frontend:80
+	}
+}

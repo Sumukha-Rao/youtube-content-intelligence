@@ -1,0 +1,338 @@
+/* ===========================================================================
+   YouTube Content Intelligence — theme layer on top of Bootstrap 5.3.
+
+   Colours are declared once as custom properties and redefined for
+   [data-bs-theme="dark"], which the pages set before first paint from
+   localStorage (falling back to the OS preference). Everything below reads the
+   properties, so a component never needs a second dark-mode rule.
+   =========================================================================== */
+
+:root {
+  --brand: #e0332e;
+  --brand-strong: #b8231f;
+  --brand-ink: #93211d;
+  --brand-soft: #fdeeed;
+  --brand-ring: rgba(224, 51, 46, .28);
+
+  --page: #f4f5f8;
+  --page-accent: radial-gradient(1100px 460px at 12% -10%, #fbe9e8 0%, rgba(251, 233, 232, 0) 60%);
+  --surface: #ffffff;
+  --surface-2: #f8f9fb;
+  --ink: #1d2125;
+  --muted: #697280;
+  --line: #e4e7ec;
+  --shadow: 0 1px 2px rgba(16, 24, 40, .05), 0 8px 24px -12px rgba(16, 24, 40, .18);
+  --shadow-lift: 0 2px 6px rgba(16, 24, 40, .07), 0 18px 40px -18px rgba(16, 24, 40, .28);
+
+  --ok: #1a7f5a;
+  --ok-soft: #e6f5ee;
+}
+
+[data-bs-theme="dark"] {
+  --brand: #ff5d57;
+  --brand-strong: #ff7a75;
+  --brand-ink: #ffb4b0;
+  --brand-soft: #35201f;
+  --brand-ring: rgba(255, 93, 87, .3);
+
+  --page: #101317;
+  --page-accent: radial-gradient(1100px 460px at 12% -10%, #2a1b1c 0%, rgba(42, 27, 28, 0) 60%);
+  --surface: #171b21;
+  --surface-2: #1d222a;
+  --ink: #e6e9ee;
+  --muted: #98a2b3;
+  --line: #262c35;
+  --shadow: 0 1px 2px rgba(0, 0, 0, .4), 0 8px 24px -12px rgba(0, 0, 0, .6);
+  --shadow-lift: 0 2px 6px rgba(0, 0, 0, .45), 0 18px 40px -18px rgba(0, 0, 0, .75);
+
+  --ok: #5fd0a4;
+  --ok-soft: #14312a;
+}
+
+body {
+  background: var(--page-accent), var(--page);
+  background-repeat: no-repeat;
+  background-attachment: fixed;
+  color: var(--ink);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+.hidden { display: none !important; }
+
+.text-muted { color: var(--muted) !important; }
+.text-brand { color: var(--brand) !important; }
+
+/* ---- brand ---- */
+.brand { display: inline-flex; align-items: center; gap: .55rem; }
+
+.brand-mark {
+  display: inline-grid;
+  place-items: center;
+  width: 1.7rem;
+  height: 1.7rem;
+  border-radius: 8px;
+  background: linear-gradient(140deg, var(--brand) 0%, var(--brand-strong) 100%);
+  color: #fff;
+  font-size: .8rem;
+  line-height: 1;
+  box-shadow: 0 4px 12px -4px var(--brand-ring);
+}
+
+.brand-title { font-weight: 650; font-size: 1.05rem; letter-spacing: -.01em; color: var(--ink); }
+.brand-lg .brand-mark { width: 2.1rem; height: 2.1rem; font-size: 1rem; }
+.brand-lg .brand-title { font-size: 1.3rem; }
+
+/* Sign-in page is vertically centred; the app page is not. */
+.auth-page {
+  display: flex;
+  align-items: center;
+  min-height: 100vh;
+  padding: 3vh 0;
+}
+
+/* ---- top bar ---- */
+.topbar {
+  background: color-mix(in srgb, var(--surface) 88%, transparent);
+  backdrop-filter: saturate(180%) blur(8px);
+  border-bottom: 1px solid var(--line);
+  padding: .65rem 0;
+  position: sticky;
+  top: 0;
+  z-index: 1020;
+}
+
+/* ---- buttons ---- */
+.btn-brand {
+  background: linear-gradient(140deg, var(--brand) 0%, var(--brand-strong) 100%);
+  border: none;
+  color: #fff;
+  font-weight: 550;
+  box-shadow: 0 6px 16px -8px var(--brand-ring);
+  transition: transform .12s ease, box-shadow .12s ease, filter .12s ease;
+}
+.btn-brand:hover, .btn-brand:focus { color: #fff; filter: brightness(1.06); transform: translateY(-1px); }
+.btn-brand:active { transform: translateY(0); }
+.btn-brand:disabled { filter: grayscale(.5); opacity: .6; box-shadow: none; }
+
+.btn-outline-brand {
+  border: 1px solid var(--brand);
+  color: var(--brand);
+  background: transparent;
+  font-weight: 500;
+}
+.btn-outline-brand:hover { background: var(--brand); color: #fff; }
+
+.btn-ghost {
+  border: 1px solid var(--line);
+  color: var(--ink);
+  background: var(--surface);
+}
+.btn-ghost:hover { background: var(--surface-2); color: var(--ink); border-color: var(--muted); }
+
+.btn:focus-visible, .form-control:focus, .form-select:focus {
+  box-shadow: 0 0 0 .2rem var(--brand-ring) !important;
+  border-color: var(--brand) !important;
+}
+
+/* ---- surfaces ---- */
+.card {
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--surface);
+  box-shadow: var(--shadow);
+  transition: box-shadow .18s ease, transform .18s ease;
+}
+.card:hover { box-shadow: var(--shadow-lift); }
+
+.form-control, .form-select {
+  background: var(--surface);
+  border-color: var(--line);
+  color: var(--ink);
+}
+.form-control::placeholder { color: color-mix(in srgb, var(--muted) 70%, transparent); }
+
+.card-eyebrow {
+  color: var(--muted);
+  font-size: .72rem;
+  text-transform: uppercase;
+  letter-spacing: .06em;
+  font-weight: 600;
+  margin-bottom: .6rem;
+}
+
+.section-head {
+  font-size: .82rem;
+  text-transform: uppercase;
+  letter-spacing: .05em;
+  color: var(--muted);
+  font-weight: 600;
+  margin-bottom: .6rem;
+}
+
+.channel-name { font-weight: 600; }
+
+.competitor-card {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: .65rem .85rem;
+  background: var(--surface-2);
+  min-width: 190px;
+  transition: border-color .15s ease, transform .15s ease;
+}
+.competitor-card:hover { border-color: var(--brand); transform: translateY(-1px); }
+
+.badge-soft {
+  background: var(--brand-soft);
+  color: var(--brand-ink);
+  font-weight: 500;
+  border-radius: 999px;
+  padding: .38em .75em;
+}
+
+/* ---- generate ---- */
+.generate-panel {
+  text-align: center;
+  padding: 1.6rem 1rem;
+  border: 1px dashed var(--line);
+  border-radius: 16px;
+  background: color-mix(in srgb, var(--surface) 60%, transparent);
+}
+
+.progress { background: var(--surface-2); border-radius: 999px; }
+.progress-bar {
+  background: linear-gradient(90deg, var(--brand) 0%, var(--brand-strong) 100%);
+  transition: width .4s ease;
+}
+
+/* ---- setup wizard ---- */
+.setup-shell { max-width: 680px; margin: 2vh auto 0; }
+
+.steps { display: flex; align-items: center; gap: .6rem; color: var(--muted); font-size: .9rem; }
+.steps .step { display: inline-flex; align-items: center; gap: .45rem; }
+.steps .step b {
+  display: inline-grid;
+  place-items: center;
+  width: 1.35rem;
+  height: 1.35rem;
+  border-radius: 50%;
+  border: 1px solid var(--line);
+  font-size: .75rem;
+  font-weight: 600;
+}
+.steps .step.active { color: var(--brand-ink); font-weight: 600; }
+.steps .step.active b { background: var(--brand); border-color: var(--brand); color: #fff; }
+.steps .step-sep { opacity: .5; }
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: .5rem;
+  background: var(--brand-soft);
+  color: var(--brand-ink);
+  border-radius: 999px;
+  padding: .3rem .5rem .3rem .85rem;
+  margin: 0 .35rem .35rem 0;
+  font-size: .9rem;
+}
+.chip .btn-close { font-size: .6rem; }
+
+/* ---- settings ---- */
+.settings-nav { gap: .35rem; }
+.settings-nav .nav-link {
+  color: var(--muted);
+  border-radius: 999px;
+  padding: .35rem .9rem;
+  font-size: .9rem;
+  font-weight: 500;
+}
+.settings-nav .nav-link:hover { color: var(--ink); background: var(--surface-2); }
+.settings-nav .nav-link.active { background: var(--brand); color: #fff; }
+
+.modal-content { border: 1px solid var(--line); border-radius: 16px; background: var(--surface); }
+
+.key-status { margin-top: .5rem; min-height: 1.6rem; }
+
+.pill {
+  display: inline-block;
+  border-radius: 999px;
+  padding: .22rem .7rem;
+  font-size: .8rem;
+  border: 1px solid var(--line);
+}
+.pill-ok { background: var(--ok-soft); color: var(--ok); border-color: transparent; font-weight: 500; }
+.pill-muted { background: var(--surface-2); color: var(--muted); }
+
+.storage-note {
+  font-size: .82rem;
+  color: var(--muted);
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: .6rem .8rem;
+}
+
+/* ---- ideas output ---- */
+.ideas-body h2 { font-size: 1.35rem; margin-top: 1.6rem; }
+.ideas-body h3 {
+  font-size: 1.12rem;
+  margin-top: 1.6rem;
+  font-weight: 650;
+  padding-left: .7rem;
+  border-left: 3px solid var(--brand);
+}
+.ideas-body h4 { font-size: 1.02rem; margin-top: 1.1rem; font-weight: 600; }
+.ideas-body h2:first-child,
+.ideas-body h3:first-child { margin-top: 0; }
+.ideas-body ul, .ideas-body ol { margin-bottom: .9rem; }
+.ideas-body li { margin-bottom: .3rem; }
+.ideas-body p { margin-bottom: .7rem; }
+.ideas-body strong { color: var(--ink); }
+.ideas-body code {
+  background: var(--surface-2);
+  padding: .1rem .35rem;
+  border-radius: 5px;
+  color: var(--brand-ink);
+}
+.ideas-body hr { margin: 1.6rem 0; border-color: var(--line); }
+
+/* ---- prompt panel ---- */
+.offcanvas-wide { width: min(760px, 92vw) !important; }
+.offcanvas { background: var(--surface); color: var(--ink); }
+
+.prompt-pre {
+  white-space: pre-wrap;
+  word-break: break-word;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 1rem;
+  font-size: .82rem;
+  line-height: 1.45;
+  color: var(--ink);
+}
+
+/* ---- misc ---- */
+.empty-state { text-align: center; color: var(--muted); padding: 3rem 1rem; }
+
+.toast-box {
+  position: fixed;
+  top: 1rem;
+  right: 1rem;
+  z-index: 2000;
+  max-width: 380px;
+}
+.toast-box .alert {
+  margin-bottom: .5rem;
+  box-shadow: var(--shadow-lift);
+  animation: toast-in .18s ease-out;
+}
+
+@keyframes toast-in {
+  from { opacity: 0; transform: translateY(-6px); }
+  to   { opacity: 1; transform: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation: none !important; transition: none !important; }
+}

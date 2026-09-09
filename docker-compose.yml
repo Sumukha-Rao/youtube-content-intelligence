@@ -1,0 +1,128 @@
+services:
+  mysql:
+    image: mysql:8.0
+    container_name: yci-mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-yci}
+      MYSQL_USER: ${MYSQL_USERNAME:-yci}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-yci_password}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-root_password}
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./database/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-p${MYSQL_ROOT_PASSWORD:-root_password}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  ml-service:
+    build: ./ml-service
+    container_name: yci-ml-service
+    restart: unless-stopped
+    environment:
+      MODEL_DIR: /app/models
+    ports:
+      - "8000:8000"
+    volumes:
+      - ml_models:/app/models
+
+  # Private metasearch instance used to ground ideas in current information.
+  # Reachable from the backend as http://searxng:8080 and, for a look at what it
+  # returns, from a browser on http://localhost:8888.
+  searxng:
+    image: searxng/searxng:latest
+    container_name: yci-searxng
+    restart: unless-stopped
+    environment:
+      SEARXNG_BASE_URL: ${SEARXNG_BASE_URL:-http://localhost:8888/}
+      # Read at startup and used instead of the placeholder in settings.yml.
+      # Any long random string works.
+      SEARXNG_SECRET: ${SEARXNG_SECRET:-please_change_this_searxng_secret}
+    volumes:
+      # Read-only: the instance is configured entirely from these two files.
+      - ./deploy/searxng:/etc/searxng:ro
+    ports:
+      - "8888:8080"
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - SETGID
+      - SETUID
+    healthcheck:
+      test: ["CMD", "wget", "-qO", "/dev/null", "http://localhost:8080/healthz"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  backend:
+    build: ./backend
+    container_name: yci-backend
+    restart: unless-stopped
+    depends_on:
+      mysql:
+        condition: service_healthy
+      ml-service:
+        condition: service_started
+      searxng:
+        condition: service_started
+    environment:
+      SPRING_DATASOURCE_URL: ${MYSQL_URL:-jdbc:mysql://mysql:3306/yci?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC}
+      SPRING_DATASOURCE_USERNAME: ${MYSQL_USERNAME:-yci}
+      SPRING_DATASOURCE_PASSWORD: ${MYSQL_PASSWORD:-yci_password}
+      # Encrypts the API keys users save in Settings before they reach MySQL.
+      APP_SECRET_KEY: ${APP_SECRET_KEY:-}
+      # Server-wide defaults. Any user can override these for themselves in the
+      # app under Settings -> API access.
+      YOUTUBE_API_KEY: ${YOUTUBE_API_KEY:-}
+      YOUTUBE_MAX_COMMENTS_PER_VIDEO: ${YOUTUBE_MAX_COMMENTS_PER_VIDEO:-200}
+      LLM_BASE_URL: ${LLM_BASE_URL:-https://api.openai.com/v1}
+      LLM_API_KEY: ${LLM_API_KEY:-}
+      LLM_MODEL: ${LLM_MODEL:-gpt-4o-mini}
+      LLM_TIMEOUT_SECONDS: ${LLM_TIMEOUT_SECONDS:-900}
+      LLM_MAX_PROMPT_CHARS: ${LLM_MAX_PROMPT_CHARS:-24000}
+      ML_SERVICE_URL: ${ML_SERVICE_URL:-http://ml-service:8000}
+      WEB_SEARCH_PROVIDER: ${WEB_SEARCH_PROVIDER:-searxng}
+      WEB_SEARCH_BASE_URL: ${WEB_SEARCH_BASE_URL:-http://searxng:8080}
+      WEB_SEARCH_FALLBACK: ${WEB_SEARCH_FALLBACK:-true}
+      AUTH_TOKEN_TTL_DAYS: ${AUTH_TOKEN_TTL_DAYS:-30}
+      # Email digests — optional. With SMTP_HOST unset, sending is skipped.
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USERNAME: ${SMTP_USERNAME:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      NOTIFY_FROM: ${NOTIFY_FROM:-yci@localhost}
+      NOTIFY_CRON: ${NOTIFY_CRON:-0 0 * * * *}
+      APP_URL: ${APP_URL:-http://localhost:8081}
+    # Lets the container reach services running on the host (e.g. Ollama on 11434).
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    ports:
+      - "8080:8080"
+
+  # Static frontend served by nginx, which also proxies /api to the backend. The
+  # page therefore has no backend URL in it: open it on any host or port and its
+  # API calls follow to the same origin.
+  frontend:
+    image: nginx:alpine
+    container_name: yci-frontend
+    restart: unless-stopped
+    depends_on:
+      - backend
+    ports:
+      - "8081:80"
+    volumes:
+      - ./frontend:/usr/share/nginx/html:ro
+      # Proxies /api to the backend and serves assets with Cache-Control: no-cache,
+      # so an edited js/api.js is never shadowed by a stale copy in the browser's
+      # cache. Kept outside the web root so the config file itself is not served.
+      - ./deploy/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+
+volumes:
+  mysql_data:
+  ml_models:

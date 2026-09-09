@@ -1,0 +1,16 @@
+# Minimal dependency set for small/free-tier hosts (Azure B1s, 1 GiB RAM).
+# The heavy semantic stack (sentence-transformers / bertopic / hdbscan, which pull in
+# torch) is omitted on purpose: app/embeddings.py and app/topics.py import it lazily and
+# fall back to a TF-IDF backend, so every endpoint keeps working with lower semantic
+# quality. Measured: image 10.4 GB -> 711 MB, memory in use 1.26 GB -> ~110 MB.
+# Built by deploy/azure/docker-compose.azure.yml; see AZURE_DEPLOYMENT.md section 7.
+fastapi==0.115.0
+uvicorn[standard]==0.30.6
+pydantic==2.9.2
+
+scikit-learn==1.5.2
+pandas==2.2.3
+numpy==1.26.4
+joblib==1.4.2
+
+langdetect==1.0.9

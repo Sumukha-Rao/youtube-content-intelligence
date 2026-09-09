@@ -1,0 +1,48 @@
+# ---------------------------------------------------------------------------
+# SearXNG for the bundled web-search container.
+#
+# SearXNG is a metasearch engine: it forwards a query to Google, Bing, DuckDuckGo,
+# Wikipedia and friends under its own name and merges the answers. That is what
+# makes it the right provider here — the results are real search results, and
+# nothing rate-limits this app for asking twice in a minute.
+#
+# Two settings below are the ones that matter to the backend:
+#   search.formats  must include `json`, or /search?format=json answers 403.
+#   server.limiter  must be off, or the bot filter blocks a server-side caller.
+# Both are safe because this instance is only reachable from the compose network.
+#
+# The secret below stays as the placeholder on purpose: the container overrides it
+# at startup with $SEARXNG_SECRET from the environment, which is why this whole
+# directory can be mounted read-only.
+# ---------------------------------------------------------------------------
+use_default_settings: true
+
+general:
+  instance_name: "YCI Search"
+  donation_url: false
+  contact_url: false
+  enable_metrics: false
+
+server:
+  secret_key: "ultrasecretkey"   # overridden by $SEARXNG_SECRET at startup
+  limiter: false            # no Redis needed, and no bot filtering of our backend
+  public_instance: false
+  image_proxy: false
+  method: "GET"             # the backend queries with GET ?q=...&format=json
+
+search:
+  safe_search: 0
+  autocomplete: ""
+  default_lang: "en"
+  formats:
+    - html
+    - json
+
+outgoing:
+  request_timeout: 6.0
+  max_request_timeout: 12.0
+  pool_connections: 20
+  pool_maxsize: 10
+
+ui:
+  static_use_hash: true

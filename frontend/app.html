@@ -1,0 +1,430 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>YouTube Content Intelligence</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link href="css/styles.css" rel="stylesheet">
+  <script>
+    // Applied before first paint so a dark-theme reload never flashes white.
+    try {
+      const saved = localStorage.getItem("yci.theme");
+      document.documentElement.dataset.bsTheme = saved
+        || (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
+    } catch (e) { document.documentElement.dataset.bsTheme = "light"; }
+  </script>
+</head>
+<body>
+  <div id="toast-box" class="toast-box"></div>
+
+  <!-- ---------------- top bar ---------------- -->
+  <nav class="topbar">
+    <div class="container-xl d-flex align-items-center gap-3">
+      <span class="brand">
+        <span class="brand-mark">▶</span>
+        <span class="brand-title">Content Intelligence</span>
+      </span>
+      <div class="ms-auto d-flex align-items-center gap-2">
+        <span class="text-muted small d-none d-md-inline" id="user-email"></span>
+        <button class="btn btn-sm btn-ghost" id="btn-theme" type="button" title="Switch theme">
+          <span id="theme-icon">◐</span>
+        </button>
+        <button class="btn btn-sm btn-ghost" id="btn-settings" type="button">Settings</button>
+        <button class="btn btn-sm btn-ghost" id="btn-logout" type="button">Sign out</button>
+      </div>
+    </div>
+  </nav>
+
+  <main class="container-xl py-4">
+
+    <!-- ---------------- loading ---------------- -->
+    <div id="loading" class="empty-state">
+      <div class="spinner-border text-secondary"></div>
+      <p class="mt-3 mb-0">Loading…</p>
+    </div>
+
+    <!-- ---------------- first-run setup ---------------- -->
+    <section id="setup" class="hidden">
+      <div class="setup-shell">
+        <div class="steps mb-4">
+          <span class="step" id="step-dot-1"><b>1</b> Your channel</span>
+          <span class="step-sep">→</span>
+          <span class="step" id="step-dot-2"><b>2</b> Competitors</span>
+        </div>
+
+        <!-- step 1 -->
+        <div class="card shadow-sm" id="step-1">
+          <div class="card-body p-4">
+            <h4 class="mb-1">What's your channel?</h4>
+            <p class="text-muted">
+              Paste your channel URL, <code>@handle</code> or channel ID. We'll read your recent
+              videos and their top comments to learn what your audience is asking for.
+            </p>
+            <input id="setup-channel" class="form-control form-control-lg mb-3"
+                   placeholder="https://youtube.com/@yourchannel">
+            <div class="d-flex gap-2">
+              <button class="btn btn-brand" id="setup-channel-save" type="button">Continue</button>
+              <button class="btn btn-link text-muted" id="setup-channel-skip" type="button">Skip this step</button>
+            </div>
+            <div id="setup-channel-msg" class="mt-3"></div>
+          </div>
+        </div>
+
+        <!-- step 2 -->
+        <div class="card shadow-sm hidden" id="step-2">
+          <div class="card-body p-4">
+            <h4 class="mb-1">Who are your competitors?</h4>
+            <p class="text-muted">
+              Add channels making similar content. We'll read their videos and top comments too.
+            </p>
+
+            <div class="input-group mb-3">
+              <input id="setup-competitor" class="form-control"
+                     placeholder="https://youtube.com/@competitor">
+              <button class="btn btn-outline-brand" id="setup-competitor-add" type="button">Add</button>
+            </div>
+            <div id="setup-competitor-list" class="mb-3"></div>
+
+            <h6 class="section-head mt-4">How much to read per channel</h6>
+            <div class="row g-2 align-items-end mb-3">
+              <div class="col-sm-5">
+                <label class="form-label small">Mode</label>
+                <select id="setup-mode" class="form-select">
+                  <option value="LAST_N_VIDEOS">Last N videos</option>
+                  <option value="LAST_N_DAYS">Last N days</option>
+                </select>
+              </div>
+              <div class="col-sm-3">
+                <label class="form-label small" id="setup-value-label">Videos</label>
+                <input id="setup-value" type="number" min="1" class="form-control" value="15">
+              </div>
+              <div class="col-sm-4">
+                <div class="form-check mt-4">
+                  <input class="form-check-input" type="checkbox" id="setup-websearch">
+                  <label class="form-check-label small" for="setup-websearch">Add web search</label>
+                </div>
+              </div>
+            </div>
+            <p class="text-muted small">
+              Web search adds current context but pulls some models away from what your own
+              audience asked for — it is off unless you want it. These settings are saved and
+              reused for every run, and your own YouTube and model API keys can go in later
+              under <strong>Settings → API access</strong>.
+            </p>
+
+            <div class="d-flex gap-2">
+              <button class="btn btn-brand" id="setup-finish" type="button">Finish setup</button>
+              <button class="btn btn-link text-muted" id="setup-competitor-skip" type="button">Skip this step</button>
+            </div>
+            <div id="setup-competitor-msg" class="mt-3"></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ---------------- home ---------------- -->
+    <section id="home" class="hidden">
+      <div class="row g-3 mb-4">
+        <div class="col-lg-4">
+          <div class="card h-100 shadow-sm">
+            <div class="card-body">
+              <div class="card-eyebrow">Your channel</div>
+              <div id="home-channel"></div>
+            </div>
+          </div>
+        </div>
+        <div class="col-lg-8">
+          <div class="card h-100 shadow-sm">
+            <div class="card-body">
+              <div class="card-eyebrow">Competitors</div>
+              <div id="home-competitors"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="generate-panel mb-4">
+        <button class="btn btn-brand btn-lg px-5" id="btn-generate" type="button">Get ideas</button>
+        <div class="form-text mt-2" id="generate-hint"></div>
+      </div>
+
+      <!-- progress -->
+      <div id="progress-box" class="card shadow-sm mb-4 hidden">
+        <div class="card-body">
+          <div class="d-flex align-items-center gap-2 mb-2">
+            <span class="spinner-border spinner-border-sm text-brand"></span>
+            <strong id="progress-msg">Working…</strong>
+          </div>
+          <div class="progress" style="height:8px;">
+            <div id="progress-bar" class="progress-bar progress-bar-striped progress-bar-animated"
+                 style="width:0%"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- results -->
+      <div id="result-box" class="hidden">
+        <div class="d-flex align-items-center flex-wrap gap-2 mb-3">
+          <h4 class="mb-0">Your video ideas</h4>
+          <span class="badge badge-soft" id="result-meta"></span>
+          <button class="btn btn-sm btn-ghost ms-auto" id="btn-view-prompt" type="button">
+            View full prompt
+          </button>
+        </div>
+        <div class="alert alert-warning py-2 small hidden" id="websearch-note">
+          Web search returned nothing this time, so these ideas come from your channel and
+          competitor data only. The bundled SearXNG instance is the reliable provider —
+          check it under <strong>Settings → API access</strong>.
+        </div>
+        <div class="card shadow-sm">
+          <div class="card-body ideas-body" id="result-body"></div>
+        </div>
+      </div>
+
+      <div id="no-results" class="empty-state hidden">
+        <p class="mb-0">No ideas yet. Hit <strong>Get ideas</strong> to generate your first set.</p>
+      </div>
+    </section>
+  </main>
+
+  <!-- ---------------- full prompt (side panel) ---------------- -->
+  <div class="offcanvas offcanvas-end offcanvas-wide" tabindex="-1" id="prompt-panel">
+    <div class="offcanvas-header">
+      <h5 class="offcanvas-title">Full prompt sent to the model</h5>
+      <button type="button" class="btn-close" data-bs-dismiss="offcanvas"></button>
+    </div>
+    <div class="offcanvas-body">
+      <p class="text-muted small">
+        Everything the model was given — your audience's requests, competitor activity and any
+        web results. The analysis behind it is not shown anywhere else.
+      </p>
+      <button class="btn btn-sm btn-ghost mb-3" id="btn-copy-prompt" type="button">Copy</button>
+      <pre class="prompt-pre" id="prompt-text"></pre>
+    </div>
+  </div>
+
+  <!-- ---------------- settings ---------------- -->
+  <div class="modal fade" id="settings-modal" tabindex="-1">
+    <div class="modal-dialog modal-lg modal-dialog-scrollable">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title">Settings</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+
+          <ul class="nav nav-pills settings-nav mb-4" role="tablist">
+            <li class="nav-item">
+              <button class="nav-link active" data-bs-toggle="pill" data-bs-target="#pane-channels"
+                      type="button">Channels</button>
+            </li>
+            <li class="nav-item">
+              <button class="nav-link" data-bs-toggle="pill" data-bs-target="#pane-reading"
+                      type="button">Reading</button>
+            </li>
+            <li class="nav-item">
+              <button class="nav-link" data-bs-toggle="pill" data-bs-target="#pane-api"
+                      type="button">API access</button>
+            </li>
+            <li class="nav-item">
+              <button class="nav-link" data-bs-toggle="pill" data-bs-target="#pane-notify"
+                      type="button">Notifications</button>
+            </li>
+          </ul>
+
+          <div class="tab-content">
+
+            <!-- ---- channels ---- -->
+            <div class="tab-pane fade show active" id="pane-channels">
+              <h6 class="section-head">Your channel</h6>
+              <div class="input-group mb-2">
+                <input id="set-channel" class="form-control" placeholder="https://youtube.com/@yourchannel">
+                <button class="btn btn-outline-brand" id="set-channel-save" type="button">Save</button>
+                <button class="btn btn-ghost" id="set-channel-remove" type="button">Remove</button>
+              </div>
+              <div id="set-channel-msg" class="mb-4 small"></div>
+
+              <h6 class="section-head">Competitor channels</h6>
+              <div class="input-group mb-2">
+                <input id="set-competitor" class="form-control" placeholder="https://youtube.com/@competitor">
+                <button class="btn btn-outline-brand" id="set-competitor-add" type="button">Add</button>
+              </div>
+              <div id="set-competitor-list"></div>
+            </div>
+
+            <!-- ---- reading ---- -->
+            <div class="tab-pane fade" id="pane-reading">
+              <h6 class="section-head">How much to read</h6>
+              <div class="row g-2 mb-2">
+                <div class="col-sm-4">
+                  <label class="form-label small">Mode</label>
+                  <select id="set-mode" class="form-select">
+                    <option value="LAST_N_VIDEOS">Last N videos</option>
+                    <option value="LAST_N_DAYS">Last N days</option>
+                  </select>
+                </div>
+                <div class="col-sm-2">
+                  <label class="form-label small" id="set-value-label">Videos</label>
+                  <input id="set-value" type="number" min="1" class="form-control">
+                </div>
+                <div class="col-sm-3">
+                  <label class="form-label small">Your comments</label>
+                  <input id="set-own-comments" type="number" min="50" max="5000" class="form-control">
+                </div>
+                <div class="col-sm-3">
+                  <label class="form-label small">Per competitor</label>
+                  <input id="set-comp-comments" type="number" min="20" max="2000" class="form-control">
+                </div>
+              </div>
+              <p class="form-text">
+                Bigger numbers mean better evidence and more YouTube quota per run.
+              </p>
+              <div class="form-check mt-3">
+                <input class="form-check-input" type="checkbox" id="set-websearch">
+                <label class="form-check-label" for="set-websearch">
+                  Let the model use web search results for current context
+                </label>
+                <div class="form-text">
+                  Off by default. It grounds ideas in what is happening now, but a smaller
+                  model often follows the search results instead of your audience's comments.
+                  Turn it on if the ideas feel stale; turn it off if they feel off-topic.
+                </div>
+              </div>
+            </div>
+
+            <!-- ---- API access ---- -->
+            <div class="tab-pane fade" id="pane-api">
+              <p class="text-muted small">
+                Anything you leave empty falls back to the server's own configuration. What you
+                fill in is used for <em>your</em> runs only — your YouTube quota, your model,
+                your bill.
+              </p>
+
+              <h6 class="section-head">YouTube Data API</h6>
+              <div class="row g-2">
+                <div class="col-sm-7">
+                  <input id="set-yt-key" type="password" class="form-control" autocomplete="off"
+                         placeholder="AIza…">
+                </div>
+                <div class="col-sm-5 d-flex gap-2">
+                  <button class="btn btn-outline-brand flex-grow-1" id="set-yt-test" type="button">Test</button>
+                  <button class="btn btn-ghost" id="set-yt-clear" type="button"
+                          title="Forget my key and use the server's">Clear</button>
+                </div>
+              </div>
+              <div class="key-status" id="set-yt-status"></div>
+              <div class="form-text">
+                Create one in Google Cloud with “YouTube Data API v3” enabled. A fresh key gets
+                10,000 quota units a day — roughly a few full runs.
+              </div>
+              <div id="set-yt-msg" class="mt-2"></div>
+
+              <h6 class="section-head mt-4">Language model</h6>
+              <div class="row g-2 mb-2">
+                <div class="col-sm-7">
+                  <label class="form-label small" for="set-llm-base">Base URL</label>
+                  <input id="set-llm-base" class="form-control" autocomplete="off"
+                         placeholder="https://api.openai.com/v1">
+                </div>
+                <div class="col-sm-5">
+                  <label class="form-label small" for="set-llm-model">Model</label>
+                  <input id="set-llm-model" class="form-control" autocomplete="off"
+                         placeholder="gpt-4o-mini">
+                </div>
+              </div>
+              <div class="row g-2">
+                <div class="col-sm-7">
+                  <input id="set-llm-key" type="password" class="form-control" autocomplete="off"
+                         placeholder="sk-…">
+                </div>
+                <div class="col-sm-5 d-flex gap-2">
+                  <button class="btn btn-outline-brand flex-grow-1" id="set-llm-test" type="button">Test</button>
+                  <button class="btn btn-ghost" id="set-llm-clear" type="button"
+                          title="Forget my key and use the server's">Clear</button>
+                </div>
+              </div>
+              <div class="key-status" id="set-llm-status"></div>
+              <div class="form-text">
+                Any OpenAI-compatible <code>/chat/completions</code> endpoint: OpenAI, OpenRouter,
+                Together, or a local Ollama at <code>http://host.docker.internal:11434/v1</code>
+                (any non-empty key). Prefer a non-reasoning model.
+              </div>
+              <div id="set-llm-msg" class="mt-2"></div>
+
+              <h6 class="section-head mt-4">Web search</h6>
+              <div class="row g-2">
+                <div class="col-sm-5">
+                  <label class="form-label small" for="set-search-provider">Provider</label>
+                  <select id="set-search-provider" class="form-select">
+                    <option value="">Server default</option>
+                    <option value="searxng">SearXNG</option>
+                    <option value="duckduckgo">DuckDuckGo</option>
+                    <option value="none">Off</option>
+                  </select>
+                </div>
+                <div class="col-sm-7">
+                  <label class="form-label small" for="set-searxng-url">SearXNG URL</label>
+                  <input id="set-searxng-url" class="form-control" autocomplete="off"
+                         placeholder="http://searxng:8080">
+                </div>
+              </div>
+              <div class="d-flex align-items-center gap-2 mt-2">
+                <button class="btn btn-outline-brand btn-sm" id="set-search-test" type="button">
+                  Test search
+                </button>
+                <span class="key-status flex-grow-1" id="set-search-status"></span>
+              </div>
+              <div class="form-text">
+                SearXNG is a private metasearch instance — <code>docker compose up</code> starts
+                one and the server points at it. DuckDuckGo needs nothing at all but throttles
+                repeat callers.
+              </div>
+              <div id="set-search-msg" class="mt-2"></div>
+
+              <div class="storage-note mt-4" id="set-secret-note"></div>
+            </div>
+
+            <!-- ---- notifications ---- -->
+            <div class="tab-pane fade" id="pane-notify">
+              <h6 class="section-head">Email notifications</h6>
+              <div class="form-check mb-3">
+                <input class="form-check-input" type="checkbox" id="set-notify">
+                <label class="form-check-label" for="set-notify">Email me fresh ideas automatically</label>
+              </div>
+              <div class="row g-2 mb-2">
+                <div class="col-sm-4">
+                  <label class="form-label small">Frequency</label>
+                  <select id="set-notify-freq" class="form-select">
+                    <option value="DAILY">Every day</option>
+                    <option value="WEEKLY">Every week</option>
+                  </select>
+                </div>
+                <div class="col-sm-8">
+                  <label class="form-label small">Send to</label>
+                  <input id="set-notify-email" type="email" class="form-control" placeholder="you@example.com">
+                </div>
+              </div>
+              <div id="mail-warning" class="alert alert-warning py-2 small hidden">
+                SMTP isn't configured on the server yet, so nothing will actually be sent. Your
+                preference is saved and will start working once mail credentials are set.
+              </div>
+            </div>
+          </div>
+
+          <div id="settings-msg" class="mt-3"></div>
+        </div>
+        <div class="modal-footer">
+          <button class="btn btn-ghost" data-bs-dismiss="modal" type="button">Close</button>
+          <button class="btn btn-brand" id="settings-save" type="button">Save settings</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+  <script src="js/config.js"></script>
+  <script src="js/api.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>

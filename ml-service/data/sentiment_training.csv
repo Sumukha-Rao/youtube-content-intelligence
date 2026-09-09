@@ -1,0 +1,46 @@
+text,label
+"This tutorial was excellent and very clear",POSITIVE
+"Amazing explanation, finally understand it",POSITIVE
+"Best video on this topic, thank you so much",POSITIVE
+"Really helpful and well structured",POSITIVE
+"I love your content, keep it up",POSITIVE
+"Super clean walkthrough, worked first try",POSITIVE
+"Great job, this saved me hours",POSITIVE
+"Fantastic content as always",POSITIVE
+"The demo was awesome and easy to follow",POSITIVE
+"Brilliant, exactly what I needed",POSITIVE
+"Perfectly explained, subscribed immediately",POSITIVE
+"This helped me pass my interview, thanks",POSITIVE
+"Wonderful tutorial, very practical",POSITIVE
+"Clear, concise and useful, loved it",POSITIVE
+"You are a great teacher, appreciate it",POSITIVE
+"The explanation was confusing and hard to follow",NEGATIVE
+"This did not work for me at all",NEGATIVE
+"Audio quality is terrible, can barely hear",NEGATIVE
+"Too fast, I got completely lost",NEGATIVE
+"Waste of time, nothing new here",NEGATIVE
+"Very disappointing, expected more depth",NEGATIVE
+"The code has bugs and does not compile",NEGATIVE
+"Boring and poorly explained",NEGATIVE
+"This is wrong, that is not how it works",NEGATIVE
+"Awful editing, hard to watch",NEGATIVE
+"You skipped the important part, useless",NEGATIVE
+"The video froze and the steps are unclear",NEGATIVE
+"Terrible pacing, I stopped halfway",NEGATIVE
+"Misleading title, did not cover what I wanted",NEGATIVE
+"Not helpful, too much rambling",NEGATIVE
+"It is an okay video I guess",NEUTRAL
+"This is about Kafka and Spring Boot",NEUTRAL
+"I watched this yesterday",NEUTRAL
+"The video is around twenty minutes long",NEUTRAL
+"Here is a link to the docs",NEUTRAL
+"Which version are you using in this video",NEUTRAL
+"I have a question about the setup",NEUTRAL
+"First comment",NEUTRAL
+"Can you share the source code repository",NEUTRAL
+"What operating system is this",NEUTRAL
+"Timestamp at ten minutes is the key part",NEUTRAL
+"I am watching this in 2026",NEUTRAL
+"Reminds me of another framework",NEUTRAL
+"Posting this to my study group",NEUTRAL
+"Noted, will try later",NEUTRAL

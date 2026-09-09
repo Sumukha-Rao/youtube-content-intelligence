@@ -1,0 +1,133 @@
+# Compose file for a 1 GiB Azure free-tier VM.
+#
+# Differences from the root docker-compose.yml:
+#   * no mysql container      — the database is Azure Database for MySQL Flexible Server
+#   * ml-service uses Dockerfile.lite (TF-IDF backend, ~700 MB image, ~110 MB RSS)
+#   * a Caddy reverse proxy terminates TLS and puts frontend + API on one origin
+#   * only Caddy publishes ports; everything else is reachable on the internal network
+#   * explicit memory limits and a capped JVM heap so the services coexist in 1 GiB
+#   * SearXNG is opt-in — it does not fit in 1 GiB alongside everything else
+#
+# Usage (from the repository root on the VM):
+#   docker compose --env-file .env -f deploy/azure/docker-compose.azure.yml up -d --build
+#
+# With a bigger VM, add the private search instance too:
+#   docker compose --env-file .env -f deploy/azure/docker-compose.azure.yml \
+#     --profile searxng up -d --build
+# and set WEB_SEARCH_PROVIDER=searxng, WEB_SEARCH_BASE_URL=http://searxng:8080.
+
+services:
+  ml-service:
+    build:
+      context: ../../ml-service
+      dockerfile: Dockerfile.lite
+    container_name: yci-ml-service
+    restart: unless-stopped
+    environment:
+      MODEL_DIR: /app/models
+    volumes:
+      - ml_models:/app/models
+    mem_limit: 320m
+    expose:
+      - "8000"
+
+  backend:
+    build: ../../backend
+    container_name: yci-backend
+    restart: unless-stopped
+    depends_on:
+      - ml-service
+    environment:
+      SPRING_DATASOURCE_URL: ${MYSQL_URL}
+      SPRING_DATASOURCE_USERNAME: ${MYSQL_USERNAME}
+      SPRING_DATASOURCE_PASSWORD: ${MYSQL_PASSWORD}
+      # schema.sql is loaded into the managed database first; `update` only fills gaps.
+      SPRING_JPA_HIBERNATE_DDL_AUTO: ${DDL_AUTO:-update}
+      # Encrypts the API keys users save in Settings before they reach MySQL.
+      APP_SECRET_KEY: ${APP_SECRET_KEY:-}
+      # Server-wide defaults; each user can override them in Settings -> API access.
+      YOUTUBE_API_KEY: ${YOUTUBE_API_KEY:-}
+      YOUTUBE_MAX_COMMENTS_PER_VIDEO: ${YOUTUBE_MAX_COMMENTS_PER_VIDEO:-200}
+      LLM_BASE_URL: ${LLM_BASE_URL:-https://api.openai.com/v1}
+      LLM_API_KEY: ${LLM_API_KEY:-}
+      LLM_MODEL: ${LLM_MODEL:-gpt-4o-mini}
+      LLM_TIMEOUT_SECONDS: ${LLM_TIMEOUT_SECONDS:-900}
+      LLM_MAX_PROMPT_CHARS: ${LLM_MAX_PROMPT_CHARS:-24000}
+      ML_SERVICE_URL: http://ml-service:8000
+      # duckduckgo by default here: the SearXNG container below is off unless the
+      # `searxng` profile is enabled, and a provider with nowhere to go finds nothing.
+      WEB_SEARCH_PROVIDER: ${WEB_SEARCH_PROVIDER:-duckduckgo}
+      WEB_SEARCH_BASE_URL: ${WEB_SEARCH_BASE_URL:-}
+      WEB_SEARCH_FALLBACK: ${WEB_SEARCH_FALLBACK:-true}
+      AUTH_TOKEN_TTL_DAYS: ${AUTH_TOKEN_TTL_DAYS:-30}
+      # Email digests — optional. Blank SMTP_HOST means nothing is sent.
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USERNAME: ${SMTP_USERNAME:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      NOTIFY_FROM: ${NOTIFY_FROM:-yci@localhost}
+      NOTIFY_CRON: ${NOTIFY_CRON:-0 0 * * * *}
+      APP_URL: ${APP_URL:-https://${SITE_ADDRESS}}
+      # Keep the JVM inside its share of 1 GiB. SerialGC has the smallest footprint.
+      JAVA_TOOL_OPTIONS: "-Xmx320m -XX:MaxMetaspaceSize=128m -XX:+UseSerialGC -Xss512k"
+    mem_limit: 640m
+    expose:
+      - "8080"
+
+  frontend:
+    image: nginx:alpine
+    container_name: yci-frontend
+    restart: unless-stopped
+    volumes:
+      - ../../frontend:/usr/share/nginx/html:ro
+      # no-cache headers, so a deployed frontend change is never shadowed by a
+      # stale copy in a visitor's browser.
+      - ../nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    mem_limit: 64m
+    expose:
+      - "80"
+
+  # Opt-in: `--profile searxng`. Budget roughly 200 MiB, which a 1 GiB VM running
+  # everything else does not have.
+  searxng:
+    image: searxng/searxng:latest
+    container_name: yci-searxng
+    restart: unless-stopped
+    profiles: ["searxng"]
+    environment:
+      SEARXNG_BASE_URL: ${SEARXNG_BASE_URL:-http://searxng:8080/}
+      SEARXNG_SECRET: ${SEARXNG_SECRET:-please_change_this_searxng_secret}
+    volumes:
+      - ../searxng:/etc/searxng:ro
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - SETGID
+      - SETUID
+    mem_limit: 256m
+    expose:
+      - "8080"
+
+  caddy:
+    image: caddy:2-alpine
+    container_name: yci-caddy
+    restart: unless-stopped
+    depends_on:
+      - backend
+      - frontend
+    environment:
+      SITE_ADDRESS: ${SITE_ADDRESS}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    mem_limit: 96m
+
+volumes:
+  ml_models:
+  caddy_data:
+  caddy_config:

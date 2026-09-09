@@ -1,0 +1,209 @@
+#cloud-config
+# ─────────────────────────────────────────────────────────────────────────────
+# First-boot configuration for the YouTube Content Intelligence VM.
+#
+# Rendered by Terraform (deploy/azure/terraform/main.tf) and handed to the VM as
+# custom_data. It does, in order, what §6–§8 of AZURE_DEPLOYMENT.md ask you to do
+# by hand: swap, Docker, the .env file, the schema load, and `docker compose up`.
+#
+# Watch it run:   sudo tail -f /var/log/yci-bootstrap.log
+# Cloud-init's own log:  /var/log/cloud-init-output.log
+#
+# NOTE for anyone editing this file: it is a Terraform template. $${VAR} and
+# %%{...} are escapes; a bare $${...} is substituted by Terraform, so shell
+# variables are written as $VAR, without braces.
+# ─────────────────────────────────────────────────────────────────────────────
+
+package_update: true
+
+packages:
+  - ca-certificates
+  - curl
+  - git
+  - gnupg
+  - mysql-client
+
+write_files:
+  # 1 GiB of RAM with no swap gets the Maven build OOM-killed part-way through.
+  - path: /etc/sysctl.d/99-yci-swap.conf
+    permissions: "0644"
+    content: |
+      vm.swappiness=10
+
+  # The application's environment. Kept outside the checkout so `git clone` has an
+  # empty directory to land in; the bootstrap script copies it in afterwards.
+  #
+  # Three things differ from the local .env:
+  #   * sslMode=REQUIRED, not useSSL=false — the managed server rejects plaintext
+  #   * SITE_ADDRESS — Caddy's certificate subject and site name
+  #   * APP_URL derives from it, so digest emails link to the deployment
+  - path: /opt/yci/.env
+    permissions: "0600"
+    owner: root:root
+    content: |
+      SITE_ADDRESS=${site_address}
+      APP_URL=https://${site_address}
+
+      MYSQL_URL=${mysql_url}
+      MYSQL_USERNAME=${mysql_user}
+      MYSQL_PASSWORD=${mysql_password}
+      DDL_AUTO=${ddl_auto}
+
+      APP_SECRET_KEY=${app_secret_key}
+
+      YOUTUBE_API_KEY=${youtube_api_key}
+      YOUTUBE_MAX_COMMENTS_PER_VIDEO=${youtube_max_comments}
+
+      LLM_BASE_URL=${llm_base_url}
+      LLM_API_KEY=${llm_api_key}
+      LLM_MODEL=${llm_model}
+      LLM_TIMEOUT_SECONDS=${llm_timeout_seconds}
+      LLM_MAX_PROMPT_CHARS=${llm_max_prompt_chars}
+
+      WEB_SEARCH_PROVIDER=${web_search_provider}
+      WEB_SEARCH_BASE_URL=${web_search_base_url}
+      WEB_SEARCH_FALLBACK=${web_search_fallback}
+      SEARXNG_SECRET=${searxng_secret}
+      SEARXNG_BASE_URL=http://searxng:8080/
+
+      AUTH_TOKEN_TTL_DAYS=${auth_token_ttl_days}
+
+      SMTP_HOST=${smtp_host}
+      SMTP_PORT=${smtp_port}
+      SMTP_USERNAME=${smtp_username}
+      SMTP_PASSWORD=${smtp_password}
+      NOTIFY_FROM=${notify_from}
+      NOTIFY_CRON=${notify_cron}
+
+  # Credentials for the mysql client, so the password never appears in `ps` output
+  # or in the shell history of whoever logs in next.
+  - path: /opt/yci/.my.cnf
+    permissions: "0600"
+    owner: root:root
+    content: |
+      [client]
+      host=${mysql_host}
+      user=${mysql_user}
+      password=${mysql_password}
+      ssl-mode=REQUIRED
+
+  - path: /usr/local/bin/yci-bootstrap.sh
+    permissions: "0755"
+    owner: root:root
+    content: |
+      #!/usr/bin/env bash
+      #
+      # Idempotent: re-running it is safe. Delete /opt/yci/.bootstrap-complete to
+      # force the whole thing again.
+      set -euo pipefail
+
+      ADMIN_USER="${admin_username}"
+      REPO_URL="${repo_url}"
+      REPO_BRANCH="${repo_branch}"
+      LOAD_SCHEMA="${load_schema}"
+      MYSQL_DATABASE="${mysql_database}"
+      COMPOSE_ARGS="${compose_args}"
+
+      APP_DIR=/opt/yci/app
+      COMPOSE_FILE=deploy/azure/docker-compose.azure.yml
+      MARKER=/opt/yci/.bootstrap-complete
+
+      log() { echo "[yci-bootstrap] $*"; }
+
+      # ---- swap ---------------------------------------------------------------
+      if ! swapon --show | grep -q '/swapfile'; then
+        log "creating ${swap_size_gb}G swap file"
+        fallocate -l ${swap_size_gb}G /swapfile || dd if=/dev/zero of=/swapfile bs=1M count=$(( ${swap_size_gb} * 1024 ))
+        chmod 600 /swapfile
+        mkswap /swapfile
+        swapon /swapfile
+        grep -q '^/swapfile' /etc/fstab || echo '/swapfile none swap sw 0 0' >> /etc/fstab
+      fi
+      sysctl --system >/dev/null
+
+      # ---- docker -------------------------------------------------------------
+      if ! command -v docker >/dev/null 2>&1; then
+        log "installing docker engine + compose plugin"
+        install -m 0755 -d /etc/apt/keyrings
+        curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
+        chmod a+r /etc/apt/keyrings/docker.asc
+        echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu $(. /etc/os-release && echo $VERSION_CODENAME) stable" \
+          > /etc/apt/sources.list.d/docker.list
+        apt-get update -y
+        apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+      fi
+      usermod -aG docker "$ADMIN_USER" || true
+      systemctl enable --now docker
+
+      if [ -f "$MARKER" ]; then
+        log "already bootstrapped; nothing further to do"
+        exit 0
+      fi
+
+      # ---- the code -----------------------------------------------------------
+      if [ -z "$REPO_URL" ]; then
+        log "no repo_url set — the box is prepared, the checkout is yours to place."
+        log "rsync the project to $APP_DIR, then:"
+        log "  cp /opt/yci/.env $APP_DIR/.env"
+        log "  cd $APP_DIR && docker compose --env-file .env -f $COMPOSE_FILE up -d --build"
+        install -d -o "$ADMIN_USER" -g "$ADMIN_USER" "$APP_DIR"
+        exit 0
+      fi
+
+      if [ ! -d "$APP_DIR/.git" ]; then
+        log "cloning $REPO_URL ($REPO_BRANCH)"
+        git clone --branch "$REPO_BRANCH" --depth 1 "$REPO_URL" "$APP_DIR"
+      fi
+
+      install -m 0600 -o "$ADMIN_USER" -g "$ADMIN_USER" /opt/yci/.env "$APP_DIR/.env"
+      chown -R "$ADMIN_USER:$ADMIN_USER" "$APP_DIR"
+
+      # ---- schema -------------------------------------------------------------
+      #
+      # docker compose loads database/schema.sql through the MySQL container's
+      # entrypoint locally. A managed server has no such hook, and ddl-auto=update
+      # is not a substitute: it emits no foreign keys for the tables whose entities
+      # carry a plain `Long userId` instead of a JPA association.
+      if [ "$LOAD_SCHEMA" = "true" ] && [ -f "$APP_DIR/database/schema.sql" ]; then
+        for attempt in 1 2 3 4 5 6 7 8 9 10; do
+          if mysql --defaults-extra-file=/opt/yci/.my.cnf -e 'SELECT 1' >/dev/null 2>&1; then
+            break
+          fi
+          log "waiting for the database (attempt $attempt)"
+          sleep 15
+        done
+
+        TABLES=$(mysql --defaults-extra-file=/opt/yci/.my.cnf -N -B \
+          -e "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='$MYSQL_DATABASE'" || echo 0)
+
+        if [ "$TABLES" -eq 0 ]; then
+          log "loading database/schema.sql"
+          mysql --defaults-extra-file=/opt/yci/.my.cnf < "$APP_DIR/database/schema.sql"
+        else
+          log "database already has $TABLES tables; leaving it alone"
+        fi
+
+        # Safe to re-run: "Duplicate column name" means it already applied.
+        for m in "$APP_DIR"/database/migrations/*.sql; do
+          [ -e "$m" ] || continue
+          log "applying migration $(basename "$m")"
+          mysql --defaults-extra-file=/opt/yci/.my.cnf "$MYSQL_DATABASE" < "$m" || \
+            log "  (skipped — most likely already applied)"
+        done
+      fi
+
+      # ---- build and start ----------------------------------------------------
+      #
+      # 15-30 minutes on a burstable VM the first time: Maven fetches and compiles
+      # the Spring dependency tree, pip builds the Python wheels.
+      log "building and starting the stack — this takes a while on a B-series VM"
+      cd "$APP_DIR"
+      docker compose --env-file .env -f "$COMPOSE_FILE" $COMPOSE_ARGS up -d --build
+
+      touch "$MARKER"
+      log "done. https://${site_address} should answer once Caddy has its certificate."
+
+runcmd:
+  - [ bash, -lc, "/usr/local/bin/yci-bootstrap.sh 2>&1 | tee -a /var/log/yci-bootstrap.log" ]
+
+final_message: "yci: cloud-init finished after $UPTIME seconds. See /var/log/yci-bootstrap.log"

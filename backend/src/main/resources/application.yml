@@ -1,0 +1,81 @@
+spring:
+  application:
+    name: youtube-content-intelligence
+  datasource:
+    url: ${SPRING_DATASOURCE_URL:jdbc:mysql://localhost:3306/yci?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC}
+    username: ${SPRING_DATASOURCE_USERNAME:yci}
+    password: ${SPRING_DATASOURCE_PASSWORD:yci_password}
+    driver-class-name: com.mysql.cj.jdbc.Driver
+  jpa:
+    hibernate:
+      ddl-auto: update      # schema.sql is authoritative; update fills any gaps
+    open-in-view: false
+    properties:
+      hibernate:
+        format_sql: false
+    show-sql: false
+  # SMTP is optional. With no host set, Spring creates no JavaMailSender and the
+  # digest scheduler logs and skips instead of failing.
+  mail:
+    host: ${SMTP_HOST:}
+    port: ${SMTP_PORT:587}
+    username: ${SMTP_USERNAME:}
+    password: ${SMTP_PASSWORD:}
+    properties:
+      mail:
+        smtp:
+          auth: ${SMTP_AUTH:true}
+          starttls:
+            enable: ${SMTP_STARTTLS:true}
+
+server:
+  port: 8080
+
+# CORS for the static frontend served on a different origin/port
+cors:
+  allowed-origins: "*"
+
+# --- Application-specific configuration ---
+#
+# Everything under app.youtube / app.llm / app.web-search is the *default*. Any
+# user can override their own copy from Settings -> API access, and those values
+# win for that user's runs only.
+app:
+  # Encrypts the API keys users save in Settings before they are written to MySQL.
+  # Blank = stored as typed (fine for a single-user install, logged at startup).
+  secret-key: ${APP_SECRET_KEY:}
+  youtube:
+    api-key: ${YOUTUBE_API_KEY:}
+    api-base-url: https://www.googleapis.com/youtube/v3
+    max-comments-per-video: ${YOUTUBE_MAX_COMMENTS_PER_VIDEO:200}
+  ml:
+    base-url: ${ML_SERVICE_URL:http://localhost:8000}
+  llm:
+    base-url: ${LLM_BASE_URL:https://api.openai.com/v1}
+    api-key: ${LLM_API_KEY:}
+    model: ${LLM_MODEL:gpt-4o-mini}
+    # A local CPU model can take minutes on a long prompt; generation runs in an
+    # async job, so a long ceiling costs nothing.
+    timeout-seconds: ${LLM_TIMEOUT_SECONDS:900}
+    max-prompt-chars: ${LLM_MAX_PROMPT_CHARS:24000}
+  web-search:
+    # searxng is the default: docker compose starts one next to the app, and unlike
+    # the keyless DuckDuckGo endpoint it does not throttle repeat callers.
+    provider: ${WEB_SEARCH_PROVIDER:searxng}      # searxng | duckduckgo | none
+    base-url: ${WEB_SEARCH_BASE_URL:http://searxng:8080}   # required for searxng
+    max-queries: ${WEB_SEARCH_MAX_QUERIES:4}
+    results-per-query: ${WEB_SEARCH_RESULTS:4}
+    timeout-seconds: ${WEB_SEARCH_TIMEOUT_SECONDS:15}
+    # If SearXNG answers with nothing, try DuckDuckGo before giving up.
+    fallback-enabled: ${WEB_SEARCH_FALLBACK:true}
+  auth:
+    token-ttl-days: ${AUTH_TOKEN_TTL_DAYS:30}
+  notifications:
+    from: ${NOTIFY_FROM:yci@localhost}
+    app-url: ${APP_URL:http://localhost:8081}
+    cron: ${NOTIFY_CRON:0 0 * * * *}
+
+logging:
+  level:
+    com.yci: INFO
+    org.hibernate.SQL: WARN

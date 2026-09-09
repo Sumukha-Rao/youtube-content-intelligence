@@ -1,0 +1,33 @@
+# Bot-detection settings for the bundled SearXNG.
+#
+# settings.yml keeps the limiter off — this instance is only reachable from the
+# compose network, and the limiter would otherwise treat the backend's own
+# queries as bot traffic. This file exists so that a) SearXNG stops warning that
+# it is missing, and b) if the limiter is ever switched on, calls from inside the
+# private network are still let through.
+[botdetection]
+trusted_proxies = [
+  '127.0.0.0/8',
+  '10.0.0.0/8',
+  '172.16.0.0/12',
+  '192.168.0.0/16',
+  '::1',
+  'fd00::/8',
+]
+ipv4_prefix = 32
+ipv6_prefix = 48
+
+[botdetection.ip_limit]
+filter_link_local = false
+link_token = false
+
+[botdetection.ip_lists]
+pass_ip = [
+  '127.0.0.0/8',
+  '10.0.0.0/8',
+  '172.16.0.0/12',
+  '192.168.0.0/16',
+  '::1',
+  'fd00::/8',
+]
+block_ip = []

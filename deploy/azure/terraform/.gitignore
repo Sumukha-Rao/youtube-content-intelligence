@@ -1,0 +1,11 @@
+# Terraform state holds the database password and APP_SECRET_KEY in clear text.
+*.tfstate
+*.tfstate.*
+.terraform/
+# (.terraform.lock.hcl is deliberately NOT ignored — commit it so everyone
+#  resolves the same provider versions.)
+crash.log
+
+# Your real values.
+*.tfvars
+!*.tfvars.example

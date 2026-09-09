@@ -1,0 +1,25 @@
+# Secrets — never commit anything that resolves to a real credential.
+.env
+.env.*
+!.env.example
+*.tfvars
+!*.tfvars.example
+*.pem
+*.key
+
+# Java / Maven
+backend/target/
+*.class
+
+# Python
+ml-service/models/*.joblib
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# OS / IDE
+.DS_Store
+.idea/
+*.iml
+.vscode/

@@ -1,0 +1,22 @@
+# Core API
+fastapi==0.115.0
+uvicorn[standard]==0.30.6
+pydantic==2.9.2
+
+# Classical ML / data
+scikit-learn==1.5.2
+pandas==2.2.3
+numpy==1.26.4
+joblib==1.4.2
+
+# NLP / embeddings / topic modeling.
+# These are heavier and download model weights on first use. The service degrades
+# gracefully to a TF-IDF backend if they are unavailable, so they are effectively
+# optional for a minimal run — but recommended for full semantic quality.
+sentence-transformers==3.1.1
+bertopic==0.16.4
+hdbscan==0.8.38.post1
+nltk==3.9.1
+
+# Optional language detection
+langdetect==1.0.9

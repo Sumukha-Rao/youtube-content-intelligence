@@ -1,0 +1,39 @@
+spring:
+  datasource:
+    url: jdbc:h2:mem:yci;DB_CLOSE_DELAY=-1;MODE=MySQL
+    driver-class-name: org.h2.Driver
+    username: sa
+    password: ""
+  jpa:
+    hibernate:
+      ddl-auto: create-drop
+    database-platform: org.hibernate.dialect.H2Dialect
+  mail:
+    host: ""
+
+app:
+  # A fixed key so the SecretCipher round-trip is exercised by the tests.
+  secret-key: test-secret-key-for-unit-tests
+  youtube:
+    api-key: ""
+    api-base-url: https://www.googleapis.com/youtube/v3
+    max-comments-per-video: 200
+  ml:
+    base-url: http://localhost:8000
+  llm:
+    base-url: http://localhost:9999/v1
+    api-key: ""
+    model: test-model
+    timeout-seconds: 5
+    max-prompt-chars: 24000
+  web-search:
+    provider: none
+    base-url: ""
+    fallback-enabled: false
+  auth:
+    token-ttl-days: 30
+  notifications:
+    from: test@localhost
+    app-url: http://localhost:8081
+    # Far-future so the scheduler never fires during tests.
+    cron: "0 0 0 1 1 ?"

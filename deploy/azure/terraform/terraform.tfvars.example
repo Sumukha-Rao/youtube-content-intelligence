@@ -1,0 +1,81 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Copy to terraform.tfvars and fill in. NEVER commit terraform.tfvars — it holds
+# secrets, and so does the state file it produces.
+#
+#   cp terraform.tfvars.example terraform.tfvars
+#   terraform init && terraform apply
+#
+# Every variable not listed here has a working default; see variables.tf.
+# ─────────────────────────────────────────────────────────────────────────────
+
+# ---- required ---------------------------------------------------------------
+
+# az account show --query id -o tsv
+subscription_id = "00000000-0000-0000-0000-000000000000"
+
+# ---- placement --------------------------------------------------------------
+
+location = "centralindia"
+
+# Globally unique within the region; becomes <label>.centralindia.cloudapp.azure.com
+# and therefore the HTTPS name of the site. Leave commented for a random suffix.
+# dns_label = "yci-demo"
+
+# ---- access -----------------------------------------------------------------
+
+ssh_public_key_path = "~/.ssh/id_ed25519.pub"
+
+# The whole internet can reach port 22 with the default "*". Narrow it if your
+# address is stable — the VM holds the database credentials and the API keys.
+# ssh_source_address_prefix = "203.0.113.7"
+
+# ---- the application --------------------------------------------------------
+
+# Set this and the VM clones, builds and starts the stack on first boot. It must
+# be reachable without an interactive prompt. Leave it empty to have Terraform
+# only prepare the box (Docker, swap, .env) and rsync the code yourself.
+repo_url    = "https://github.com/<you>/youtube-content-intelligence.git"
+repo_branch = "main"
+
+# Server-wide defaults. Each account can override its own YouTube key, model and
+# search provider in the app under Settings → API access, so a shared install
+# does not have to share one quota or one bill.
+youtube_api_key = ""
+
+llm_base_url = "https://api.openai.com/v1"
+llm_api_key  = ""
+llm_model    = "gpt-4o-mini"
+
+# searxng | duckduckgo | none. The SearXNG container needs ~200 MiB, which a
+# 1 GiB VM running everything else does not have — hence duckduckgo here.
+web_search_provider = "duckduckgo"
+# compose_profiles  = ["searxng"]   # only on a larger vm_size
+
+# Encrypts users' saved API keys before they reach MySQL. Left empty, Terraform
+# generates one: terraform output -raw app_secret_key
+# app_secret_key = ""
+
+# Email digests. Blank smtp_host saves each user's preference but sends nothing.
+# smtp_host     = "smtp.gmail.com"
+# smtp_username = "you@gmail.com"
+# smtp_password = "<app password>"
+# notify_from   = "you@gmail.com"
+
+# ---- database ---------------------------------------------------------------
+
+# Left null, a strong password is generated:
+#   terraform output -raw mysql_admin_password
+# mysql_admin_password = null
+
+# Temporarily open the database to your laptop, e.g. to run mysqldump. Remove
+# the entry and re-apply when you are done.
+# mysql_allowed_client_cidrs = {
+#   my-laptop = { start = "203.0.113.7", end = "203.0.113.7" }
+# }
+
+# ---- cost -------------------------------------------------------------------
+
+# Do this on day one. The free tiers run out after 12 months while the resources
+# keep running, and a Standard public IPv4 address bills from the start.
+budget_contact_emails = ["you@example.com"]
+budget_amount         = 5
