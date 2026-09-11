@@ -27,14 +27,16 @@ resource "random_string" "suffix" {
 }
 
 # Used only when mysql_admin_password is left null. The character set avoids
-# quotes, backslashes and @, which travel badly through JDBC URLs and shell here-docs.
+# quotes, backslashes and @, which travel badly through JDBC URLs and shell here-docs,
+# and # and ;, which mysql's option-file format (/opt/yci/.my.cnf) treats as starting
+# a comment even mid-value — a password containing one gets silently truncated there.
 resource "random_password" "mysql" {
   length           = 28
   min_upper        = 2
   min_lower        = 2
   min_numeric      = 2
   min_special      = 2
-  override_special = "!#%*()-_=+[]"
+  override_special = "!%*()-_=+[]"
 }
 
 # 64 hex characters — the same thing `openssl rand -hex 32` produces.

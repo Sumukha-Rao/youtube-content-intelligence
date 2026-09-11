@@ -9,3 +9,9 @@ crash.log
 # Your real values.
 *.tfvars
 !*.tfvars.example
+
+# Saved plans are zip archives holding the database password, APP_SECRET_KEY and
+# the API keys in clear text — the same secrets as the state file. Run logs can
+# echo them too.
+tfplan*
+*.log

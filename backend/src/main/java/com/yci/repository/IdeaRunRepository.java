@@ -13,4 +13,7 @@ public interface IdeaRunRepository extends JpaRepository<IdeaRun, Long> {
     Optional<IdeaRun> findFirstByUserIdAndStatusOrderByIdDesc(Long userId, RunStatus status);
 
     boolean existsByUserIdAndStatusIn(Long userId, List<RunStatus> statuses);
+
+    /** Used at startup to find runs orphaned by a restart. */
+    List<IdeaRun> findByStatusIn(List<RunStatus> statuses);
 }
