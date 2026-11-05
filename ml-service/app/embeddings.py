@@ -12,7 +12,6 @@ from typing import List
 import numpy as np
 
 _st_model = None
-_tfidf = None
 _use_st = None
 
 
@@ -34,13 +33,6 @@ def backend_name() -> str:
     return "sentence-transformers" if _try_load_st() else "tfidf-fallback"
 
 
-def _fit_tfidf(corpus: List[str]):
-    from sklearn.feature_extraction.text import TfidfVectorizer
-    global _tfidf
-    _tfidf = TfidfVectorizer(ngram_range=(1, 2), min_df=1, sublinear_tf=True)
-    _tfidf.fit(corpus if corpus else ["placeholder text"])
-
-
 def embed(texts: List[str]) -> np.ndarray:
     """Return an (n, d) L2-normalized embedding matrix."""
     if not texts:
@@ -48,10 +40,16 @@ def embed(texts: List[str]) -> np.ndarray:
     if _try_load_st():
         vecs = _st_model.encode(texts, normalize_embeddings=True, show_progress_bar=False)
         return np.asarray(vecs, dtype=np.float32)
-    # TF-IDF fallback (fit lazily on whatever corpus we see).
-    if _tfidf is None:
-        _fit_tfidf(texts)
-    mat = _tfidf.transform(texts).toarray().astype(np.float32)
+    # Each analysis batch has its own vocabulary. A process-wide fitted
+    # vectorizer discards new topics from subsequent users/requests.
+    from sklearn.feature_extraction.text import TfidfVectorizer
+    vectorizer = TfidfVectorizer(ngram_range=(1, 2), min_df=1, sublinear_tf=True)
+    try:
+        mat = vectorizer.fit_transform(texts).toarray().astype(np.float32)
+    except ValueError as exc:
+        if "empty vocabulary" not in str(exc):
+            raise
+        return np.zeros((len(texts), 1), dtype=np.float32)
     norms = np.linalg.norm(mat, axis=1, keepdims=True)
     norms[norms == 0] = 1.0
     return mat / norms

@@ -45,6 +45,12 @@ public class GlobalExceptionHandler {
         return body(HttpStatus.BAD_REQUEST, "Validation Error", msg);
     }
 
+    @ExceptionHandler({org.springframework.http.converter.HttpMessageNotReadableException.class,
+            org.springframework.web.method.annotation.MethodArgumentTypeMismatchException.class})
+    public ResponseEntity<Map<String, Object>> malformed(Exception ex) {
+        return body(HttpStatus.BAD_REQUEST, "Bad Request", "Invalid request body or parameter.");
+    }
+
     @ExceptionHandler(YouTubeApiException.class)
     public ResponseEntity<Map<String, Object>> youtube(YouTubeApiException ex) {
         log.warn("YouTube API error: {}", ex.getMessage());
@@ -66,6 +72,6 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(Exception.class)
     public ResponseEntity<Map<String, Object>> generic(Exception ex) {
         log.error("Unhandled error", ex);
-        return body(HttpStatus.INTERNAL_SERVER_ERROR, "Internal Server Error", ex.getMessage());
+        return body(HttpStatus.INTERNAL_SERVER_ERROR, "Internal Server Error", "An unexpected error occurred. Please try again.");
     }
 }

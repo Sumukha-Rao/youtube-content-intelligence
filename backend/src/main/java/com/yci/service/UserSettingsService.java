@@ -60,8 +60,8 @@ public class UserSettingsService {
                 throw new BadRequestException("retrievalMode must be LAST_N_VIDEOS or LAST_N_DAYS.");
             }
         }
-        if (req.retrievalValue() != null) {
-            int v = req.retrievalValue();
+        if (req.retrievalValue() != null || req.retrievalMode() != null) {
+            int v = req.retrievalValue() != null ? req.retrievalValue() : s.getRetrievalValue();
             int max = s.getRetrievalMode() == RetrievalMode.LAST_N_DAYS ? 365 : 50;
             if (v < 1 || v > max) {
                 throw new BadRequestException("retrievalValue must be between 1 and " + max

@@ -54,16 +54,17 @@ All of it inside one resource group:
 | `azurerm_consumption_budget_resource_group` | Only if you set `budget_contact_emails`. |
 | `random_password` / `random_id` ×3 | Database password, `APP_SECRET_KEY`, SearXNG secret. |
 
-Every default sits inside what the Azure free account covers. See §9 for the parts
-that are *not* free.
+The defaults target a small deployment. Free-account eligibility and region/SKU
+availability must be checked for your subscription; the configuration does not guarantee
+a zero bill. See §9.
 
 ### Three choices worth knowing about before you apply
 
-**The public IP is static.** The hand-written guide lets `az vm create` allocate a
-dynamic one and then warns, in its §10.5, that deallocating and restarting the VM can
-change the address — at which point the DNS label follows it but the *database firewall
-rule does not*, and the backend is silently locked out. A Standard SKU IP costs the same
-either way, so this config takes the static one and the failure mode disappears.
+**The public IP is static.** This configuration explicitly requests a static Standard
+SKU IP, so the address survives VM deallocation and the MySQL firewall rule stays
+aligned. Replacing the IP resource still requires updating dependent configuration.
+Check [current public-IP pricing](https://azure.microsoft.com/en-us/pricing/details/ip-addresses/)
+for your region.
 
 **cloud-init changes are ignored after the first boot.** `custom_data` is only ever read
 once, on first boot, but Terraform still diffs it. Without `ignore_changes` a one-character
@@ -112,6 +113,26 @@ why the schema can be loaded without you logging in.
 
 - Somewhere the VM can clone this repository from without a password prompt. If there
   is no such place, leave `repo_url` empty and copy the code yourself (§5.2).
+
+### 2.1 Authentication and GitHub tokens
+
+Terraform uses the AzureRM and random providers, not the GitHub provider. For local
+operation, authenticate to Azure with `az login` and select the intended subscription;
+see [AzureRM CLI authentication](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/guides/azure_cli).
+
+The current project repository is public and can be cloned without a GitHub PAT:
+
+```hcl
+repo_url = "https://github.com/Sumukha-Rao/youtube-content-intelligence.git"
+```
+
+An expired GitHub PAT does not block this public clone or Azure provisioning. Local
+Git SSH authentication is independent and is not automatically installed on the VM.
+If you make the repository private, either leave `repo_url = ""` and copy the source
+(§5.2), or configure a read-only deploy key on the VM before cloning. A PAT is another
+option for private HTTPS access, but do not embed it in `repo_url`: this configuration
+can persist that value in Terraform state, cloud-init data and Git remote settings.
+GitHub documents [PAT use for HTTPS Git](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/managing-your-personal-access-tokens).
 
 ---
 
@@ -172,7 +193,7 @@ repo_url        = "https://github.com/<you>/youtube-content-intelligence.git"
 | Variable | Default | |
 |---|---|---|
 | `location` | `centralindia` | `centralindia` / `southindia` are closest from India. |
-| `vm_size` | `Standard_B2ats_v2` | 2 vCPU, 1 GiB. `Standard_B1s` if the size is not offered in your region — check with `az vm list-skus --location <region> --size Standard_B2ats --all -o table`. |
+| `vm_size` | `Standard_B2ats_v2` | 2 vCPU, 1 GiB. `Standard_B1s` if the size is not offered in your region — check with `az vm list-skus --location "<region>" --size Standard_B2ats --all -o table`. |
 | `dns_label` | random | Becomes `<label>.<region>.cloudapp.azure.com`, which is the HTTPS name and the certificate subject. Globally unique per region. |
 | `repo_url` | `""` | Empty = provision and prepare the box, but do not clone or start anything. |
 | `compose_profiles` | `[]` | `["searxng"]` adds the private metasearch container — see §4.3. |
@@ -266,10 +287,14 @@ Leave it empty and steps 4–6 are skipped. Terraform still gives you a box with
 Docker, `mysql-client` and the `.env` file, and the log tells you what remains:
 
 ```bash
-# from your machine, in the project's parent directory
+# from your machine, starting in the repository root
+# Resolve the address before changing to the project's parent directory.
+SITE=$(terraform -chdir=deploy/azure/terraform output -raw site_address)
+cd ..
 rsync -av --exclude '.venv' --exclude '.git' --exclude 'target' --exclude '__pycache__' \
-  --exclude '.pytest_cache' --exclude '.idea' \
-  youtube-content-intelligence/ azureuser@$(terraform output -raw site_address):/opt/yci/app/
+  --exclude '.pytest_cache' --exclude '.idea' --exclude '.env' --exclude '.env.*' \
+  --exclude '*.tfvars' --exclude '*.tfstate*' --exclude '.terraform' --exclude 'outputs' \
+  youtube-content-intelligence/ azureuser@"$SITE":/opt/yci/app/
 
 # on the VM
 sudo cp /opt/yci/.env /opt/yci/app/.env
@@ -285,12 +310,20 @@ In local Docker, `database/schema.sql` is run by the MySQL container's entrypoin
 managed server has no such hook, and Hibernate's `ddl-auto=update` is **not** a
 substitute: several entities carry a plain `Long userId` column rather than a JPA
 association, so Hibernate emits no foreign keys for `user_settings`, `idea_runs`,
-`auth_tokens` or `competitor_comments`, and deleting an account would orphan its rows.
+`auth_tokens` or `competitor_comments`, so database-level cascades would be missing.
+Services explicitly clean up dependent rows; retain the SQL constraints to protect direct SQL and other writers too.
 
 cloud-init loads the file only when the database has zero tables, so it will not stamp
 on an existing deployment. The `mysql` client reads its credentials from
 `/opt/yci/.my.cnf` (mode `0600`) rather than a `-p` argument, so the password never
 lands in `ps` output or in anyone's shell history.
+
+**Existing deployments:** first-boot schema loading skips a database that already has
+tables. Back up the database, inspect the columns and, if `DDL_AUTO` is not `update`,
+apply [migration 002](database/migrations/002_competitor_suggestions_and_summaries.sql)
+once for missing discovery, video-snapshot and recommendation JSON columns. Do not
+reapply after Hibernate or an earlier migration has added them. No new tables or
+historical-run backfill are needed; generate a new run for related-video associations.
 
 ### 5.4 Fitting in 1 GiB
 
@@ -311,8 +344,8 @@ print(json.load(urllib.request.urlopen('http://localhost:8000/health')))"
 ## 6. State
 
 `terraform.tfstate` contains **the database password and `APP_SECRET_KEY` in clear text**.
-Terraform has no way around this: any value that reaches a resource is recorded. Treat the
-file as a secret. `deploy/azure/terraform/.gitignore` keeps it and `*.tfvars` out of the
+This configuration persists those resource and bootstrap values in state. Treat the
+file and its backups as secrets. `deploy/azure/terraform/.gitignore` keeps it and `*.tfvars` out of the
 repository; `.terraform.lock.hcl` is deliberately *not* ignored, so everyone resolves the
 same provider versions.
 
@@ -334,7 +367,7 @@ Create that account first — a bootstrap problem Terraform cannot solve for its
 az group create -n tfstate-rg -l centralindia
 az storage account create -n ycitfstate$RANDOM -g tfstate-rg -l centralindia \
   --sku Standard_LRS --encryption-services blob --min-tls-version TLS1_2
-az storage container create -n tfstate --account-name <the name it printed>
+az storage container create -n tfstate --account-name "<storage-account-name>"
 ```
 
 Then `terraform init -migrate-state`.
@@ -368,6 +401,25 @@ docker compose --env-file .env -f deploy/azure/docker-compose.azure.yml up -d
 
 Keep `terraform.tfvars` in step anyway, so a future `-replace` rebuilds the machine you
 actually have rather than the one you first described.
+
+For SMTP setup, account opt-in and controlled delivery checks, use the
+[email guide](docs/email-notifications-implementation.md). With Azure Compose, recreate
+the backend using the deployment file after changing `.env`. Blank SMTP stops sending,
+but opted-in accounts can still consume generation quota. Daily/weekly delivery uses a
+rolling attempt timestamp; there is no guaranteed send time or separate delivery retry.
+
+### 7.2.1 Deploying the recommendation features
+
+Publish the reviewed source revision before pulling on the VM; local uncommitted changes
+are not included in a GitHub clone. Rebuild both `backend` and `ml-service` so the Python
+caption dependency and Java endpoints are deployed together. Frontend files are mounted
+from the checkout and appear after refresh. Preserve the existing ML dependency profile.
+
+Verify the public health route, sign in and test: save a creator channel → verified
+suggestions → add a competitor → generate ideas → inspect related links → request a
+transcript summary. Skipping creator setup must retain manual competitor entry and no
+automatic suggestions. Treat blocked subtitle requests as errors; do not add bypasses.
+See [feature deployment and checks](docs/recommendation-features.md#database-and-deployment).
 
 ### 7.3 Changing the infrastructure
 
@@ -409,8 +461,8 @@ still the same resource:
 az vm deallocate -g yci-rg -n yci-vm     # stop compute billing; disk and IP still bill
 az vm start      -g yci-rg -n yci-vm
 
-az mysql flexible-server stop  -g yci-rg -n <server>   # up to 30 days
-az mysql flexible-server start -g yci-rg -n <server>
+az mysql flexible-server stop  -g yci-rg -n "<server>"   # up to 30 days
+az mysql flexible-server start -g yci-rg -n "<server>"
 ```
 
 Because the public IP is static, the database firewall rule stays correct across a
@@ -440,16 +492,17 @@ with everything else.
 
 ## 9. What this costs
 
-Free for 12 months on a free account: the VM compute (750 hours/month, which is slightly
-more than a calendar month), the 64 GB P6 managed disk, and the MySQL B1ms instance with
-its included storage.
+Azure lists limited-time allowances for eligible Linux VMs and MySQL B1ms instances;
+eligibility, included storage and available sizes depend on the account and region.
+Confirm the selected resources against [Azure's free-service listing](https://azure.microsoft.com/en-in/pricing/free-services/)
+and your subscription's **Free services** page before applying. Do not assume the disk,
+IP, traffic, LLM usage or resources beyond the allowance are covered.
 
-**Not free, and the reason `budget_contact_emails` exists:**
-
-- A **Standard public IPv4 address**, roughly $3–4/month. Basic SKU IPs were retired, so
-  an internet-facing VM must have one.
-- **Outbound data transfer** past the monthly free allowance.
-- **Everything, after 12 months.** The free tiers expire; the resources keep running.
+Standard public IPv4 addresses and outbound data can add charges. Use the
+[current IP pricing](https://azure.microsoft.com/en-us/pricing/details/ip-addresses/)
+and [pricing calculator](https://azure.microsoft.com/en-us/pricing/calculator/) for your
+region and currency. Promotional allowances expire while provisioned resources continue
+to exist. A budget alert is a notification, not a spending cap or automatic shutdown.
 
 So set the budget on day one:
 
@@ -502,7 +555,7 @@ The firewall rule and the VM's current IP have diverged. With a static IP they s
 so check that the IP really is static and that nobody replaced it:
 
 ```bash
-az mysql flexible-server firewall-rule list -g yci-rg -n <server> -o table
+az mysql flexible-server firewall-rule list -g yci-rg -n "<server>" -o table
 terraform output vm_public_ip
 ```
 
@@ -543,7 +596,7 @@ terraform apply -replace=azurerm_linux_virtual_machine.vm
 ### 10.7 `Standard_B2ats_v2 is not available in this region`
 
 ```bash
-az vm list-skus --location <region> --size Standard_B2ats --all -o table
+az vm list-skus --location "<region>" --size Standard_B2ats --all -o table
 ```
 
 Set `vm_size = "Standard_B1s"`. Same 1 GiB of RAM and the same free allowance; only the

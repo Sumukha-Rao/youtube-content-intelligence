@@ -2,18 +2,21 @@
 
 A hands-on companion to [`README.md`](README.md). The README describes *what the platform
 does*; this guide covers **how it is put together, how to run it, and what to do when it
-does not start**. Every command and output below was executed against this repository.
+does not start**. Commands describe the current configuration; examples that create
+accounts, use providers or provision infrastructure are actions to run intentionally.
+Recorded verification is in [the dated review](docs/review-2026-11-01.md).
 
 ---
 
 ## 1. What runs where
 
-Five containers. Three are application code, one is nginx, one is a search engine.
+Five local containers: Spring Boot, FastAPI, MySQL, nginx and SearXNG. Azure uses
+managed MySQL and adds Caddy; SearXNG is optional there.
 
 | Service | Image / stack | Port | Purpose |
 |---|---|---|---|
 | `yci-mysql` | `mysql:8.0` | 3306 | Persistence. Schema loaded from `database/schema.sql` on first boot. |
-| `yci-ml-service` | Python 3.10 + FastAPI | 8000 | Audience demand extraction from comments. |
+| `yci-ml-service` | Python 3.10 + FastAPI | 8000 | Audience demand extraction and existing-caption retrieval. |
 | `yci-backend` | Java 17 + Spring Boot 3.3.4 | 8080 | REST API, auth, ingestion, prompt building, scheduler, LLM calls. |
 | `yci-searxng` | `searxng/searxng` | 8888 | Private metasearch instance for the web-search step. |
 | `yci-frontend` | `nginx:alpine` | 8081 | Serves `frontend/` **and proxies `/api` to the backend**. |
@@ -24,7 +27,9 @@ Two external dependencies:
   Settings → API access) no channel can be read.
 - **An OpenAI-compatible LLM endpoint** — required to generate ideas. Also per-user.
 
-Web search is optional and defaults to the bundled SearXNG.
+Web search is optional and defaults to the bundled SearXNG locally. On-demand summaries
+also access existing YouTube subtitles through the Python service; there is no new model
+or caption API key.
 
 ### Ports and origins
 
@@ -44,7 +49,7 @@ nginx (:8081)  ──  location /api/ → proxy_pass http://backend:8080
 Spring Boot (:8080)
       ├──► MySQL (:3306)               accounts, channels, comments, runs, saved API keys
       ├──► YouTube Data API            videos + top comments   (user's key or the server's)
-      ├──► ML service (:8000)          /ml/demand — what the audience is asking for
+      ├──► ML service (:8000)          /ml/demand + on-demand /ml/transcripts
       ├──► SearXNG (:8888) JSON        current context, DuckDuckGo as fallback
       └──► LLM /chat/completions       writes the ideas from the assembled evidence
 ```
@@ -60,14 +65,14 @@ readable ideas, and the exact prompt is stored with each run so it can be inspec
 
 | Package | Contents |
 |---|---|
-| `controller/` | `Auth`, `Channel`, `Competitor`, `Settings`, `Idea`, `Home` — thin REST layer. |
+| `controller/` | `Auth`, `Channel`, `Competitor`, `CompetitorSuggestion`, `Recommendation`, `Settings`, `Idea`, `Home` — thin REST layer. |
 | `security/` | `AuthInterceptor` (validates the bearer token), `@CurrentUser` + its argument resolver. A controller can never read the user id from a client header. |
-| `service/` | `AuthService`, `UserSettingsService`, `ChannelService`, `CompetitorService`, `IngestService` (YouTube → DB), `PromptBuilder` (the prompt), `IdeaService` (the async run), `NotificationService`, `ConnectionTestService` (the Test buttons). |
+| `service/` | `AuthService`, `UserSettingsService`, `ChannelService`, `CompetitorService`, `IngestService` (YouTube → DB), `PromptBuilder` (the prompt), `IdeaService` (the async run), `CompetitorDiscoveryService` (verified suggestions), `RecommendationService` (validated associations and summaries), `StructuredOutput` (JSON validation), `NotificationService`, `ConnectionTestService` (the Test buttons). |
 | `service/credentials/` | `ApiConfigService` merges a user's saved keys over the server's environment and hands the result to whoever makes the call; `ApiConfig` is that resolved shape; `SecretCipher` is the AES-GCM encryption of stored keys. |
 | `service/ml/` | `MlClient` — the HTTP client for the FastAPI service. |
 | `service/ai/` | `LlmClient` — any OpenAI-compatible `/chat/completions` endpoint. The endpoint is a per-call argument, not a startup constant, because each user may point at their own. |
 | `service/websearch/` | `WebSearchService` — SearXNG or DuckDuckGo, best-effort, per user. |
-| `service/youtube/` | `YouTubeService` (Data API v3), `TranscriptService` (best-effort). Callers open a `YouTubeService.Api` session bound to one key, so quota is always spent against the right project. |
+| `service/youtube/` | `YouTubeService` (Data API v3); the legacy `TranscriptService` is separate from the new Python caption-summary path. Callers open a `YouTubeService.Api` session bound to one key, so quota is always spent against the right project. |
 | `entity/` + `repository/` | JPA mirror of `database/schema.sql`. |
 | `scheduler/` | `DigestScheduler` — hourly; emails whoever is due. |
 | `config/` | `AppProperties` binds `app.*`; `WebConfig` does CORS, the interceptor and the resolver; `SecurityBeans` holds the password encoder. |
@@ -88,10 +93,11 @@ application from starting.
 | `embeddings.py` | sentence-transformers when available, TF-IDF fallback otherwise. |
 | `topics.py` | Generic topic discovery and similarity (kept; not on the idea path). |
 | `models.py` / `train.py` | Sentiment + intent classifiers. Not used by the idea flow. |
-| `schemas.py` | Every request and response model — the API contract in one file. |
+| `schemas.py` | NLP request and response models. |
+| `transcripts.py` | `/ml/transcripts` request model, manual/automatic caption selection, language fallback, limits and per-video outcomes. |
 
-The backend calls only `/health` and `/ml/demand`; the other six endpoints are standalone
-and unused by the idea path. [`ml-service/README.md`](ml-service/README.md) documents all
+The backend calls `/health`, `/ml/demand` and `/ml/transcripts`; the other six endpoints
+remain standalone and unused by the recommendation path. [`ml-service/README.md`](ml-service/README.md) documents all
 of them, along with the request-to-topic pipeline step by step.
 
 ### `frontend/`
@@ -99,7 +105,10 @@ of them, along with the request-to-topic pipeline step by step.
 Two pages only: `index.html` (sign in / create account) and `app.html` (setup wizard,
 home, results, settings). `js/api.js` holds the API client, the bearer token and the
 Markdown renderer; `js/app.js` is the whole page; `css/styles.css` is a small token-based
-theme layer over Bootstrap 5.3 that also supplies the dark mode.
+theme layer over Bootstrap 5.3 that also supplies light and dark modes. The refreshed
+sign-in layout, source cards, verified suggestion grid and numbered idea cards share
+these styles. Native expandable details expose evidence and outlines; related videos
+and **Get Transcript Summary** remain directly visible.
 
 There is **no backend URL in the frontend**. `API.base()` returns an empty string, so every
 call is relative and lands on whichever origin served the page — nginx and Caddy both
@@ -137,7 +146,8 @@ curl -s -o /dev/null -w '%{http_code}\n' http://localhost:8888/healthz   # SearX
 docker compose ps
 ```
 
-The first two must both answer `{"emailConfigured":false,"status":"UP"}`. If only the
+The first two must both report `status: "UP"`; `emailConfigured` is false until SMTP is
+configured. That flag checks configuration, not delivery or provider credentials. If only the
 second does, the `/api` proxy in `deploy/nginx.conf` is not in place and the page will
 report that it cannot reach the backend.
 
@@ -243,9 +253,40 @@ than silently finding nothing three minutes into a run.
 `POST /api/ideas/generate` returns `{"runId": N, "status": "QUEUED"}` immediately. Poll
 `GET /api/ideas/runs/{id}` until `status` is `COMPLETED` or `FAILED`; the response carries
 `progress` (0–100), a human-readable `message`, `errorMessage` on failure, and on success
-the `result` and the full `prompt`.
+the `result`, full `prompt` and structured `recommendations`. New idea objects carry
+zero-based IDs, persisted related videos and any cached transcript summary. Older
+Markdown-only runs remain readable.
 
 A user can only have one run in flight; a second request is rejected while one is active.
+
+### 3.5 Discovery, related videos and subtitles
+
+Saving a creator channel triggers cached discovery: fetch 15 recent uploads, ask the
+existing LLM for candidates, then verify identity and niche against YouTube API data.
+Skipping the creator step hides suggestions and makes no discovery calls; competitors
+can still be added manually. Adding a creator later enables suggestions automatically.
+
+Generation uses the current ingestion snapshot and validates every `related_video_ids`
+entry against the supplied competitor catalog. **Get Transcript Summary** uses these
+saved associations, retrieves captions and asks the same LLM for an original outline.
+No captions yields exactly **No transcript available**; temporary retrieval failures
+show a retryable error. Titles and descriptions are not substitutes for subtitles.
+
+See [the endpoint table and limits](docs/recommendation-features.md#api). Discovery and
+summary calls are synchronous HTTP requests with loading indicators; generation retains
+the asynchronous run model above. No new model, embedding system or database table was added.
+
+### 3.6 Email and deployment credentials
+
+Follow the [email guide](docs/email-notifications-implementation.md) for SMTP and
+notification opt-in. Keep notifications disabled until SMTP is ready; an unset host
+prevents sending but does not prevent all scheduled generation work. The scheduler
+checks rolling daily/weekly intervals, and its timestamp can record a failed delivery
+attempt. SMTP readiness is not a successful-send check.
+
+The Azure deployment authenticates with Azure; the public GitHub repository needs no
+PAT to clone. Local SSH Git authentication is separate from access on a newly created
+VM. See [Terraform authentication](AZURE_TERRAFORM.md#21-authentication-and-github-tokens).
 
 ---
 
@@ -276,8 +317,8 @@ maps each variable and supplies defaults.
 | `SEARXNG_SECRET` | searxng | Session secret. Any long random string. |
 | `SEARXNG_BASE_URL` | searxng | What the instance believes its own address is (its UI links only). |
 | `AUTH_TOKEN_TTL_DAYS` | backend | Session length, default 30. |
-| `SMTP_HOST` / `SMTP_PORT` / `SMTP_USERNAME` / `SMTP_PASSWORD` | backend | Blank host ⇒ digests are saved but never sent. |
-| `SMTP_AUTH` / `SMTP_STARTTLS` | backend | Both default true. Set false for a local relay that wants neither. |
+| `SMTP_HOST` / `SMTP_PORT` / `SMTP_USERNAME` / `SMTP_PASSWORD` | backend | Blank host prevents sending; keep per-user opt-in off until configured. |
+| `SMTP_AUTH` / `SMTP_STARTTLS` | backend | Both default true. Compose must explicitly forward these optional variables before `.env` overrides take effect; see the email guide. |
 | `NOTIFY_FROM` / `NOTIFY_CRON` / `APP_URL` | scheduler | `NOTIFY_CRON` is a 6-field Spring cron, checked hourly by default. |
 
 Three more are set by a compose file rather than `.env`, and are listed here because they
@@ -509,7 +550,7 @@ docker compose up -d --build
 
 ## 6. Schema notes worth knowing
 
-Two constraints are deliberate and easy to get wrong when editing the schema:
+These storage rules matter when editing the schema:
 
 **Video and comment uniqueness is per channel, not global.** Two users may track the same
 YouTube channel. With a global unique key on `youtube_video_id`, the second user's ingest
@@ -526,23 +567,41 @@ by roughly half. Existing databases get these columns from `ddl-auto: update`, o
 
 **Every child table needs an explicit foreign key.** The entities use plain `Long userId`
 columns rather than JPA associations, so `ddl-auto=update` creates those tables with **no
-foreign keys at all** — deleting a user would orphan its settings, runs and tokens.
+foreign keys at all**. Services now explicitly clean up dependent rows; schema foreign
+keys still protect direct SQL and other writers.
 `database/schema.sql` declares them; if a table was ever created by Hibernate against an
 existing database, add the constraint by hand. `AuthService.resolveUserId` also re-checks
 that the account still exists, so a stray token cannot authenticate.
+
+**New features reuse existing rows.** `channels.content_language` and
+`channels.competitor_suggestions` hold discovery results. `competitor_videos` includes
+`video_url` and `channel_name` snapshots. `idea_runs.recommendation_data` holds validated
+ideas, related-video snapshots and successful summary caches alongside the existing
+Markdown `result`. The table count remains ten.
+
+For a database with schema updates disabled, inspect its columns and apply
+[`002_competitor_suggestions_and_summaries.sql`](database/migrations/002_competitor_suggestions_and_summaries.sql)
+once when those columns are absent. Do not reapply after Hibernate or a previous
+migration has added them. Fresh databases use `database/schema.sql`.
 
 ---
 
 ## 7. Tests
 
 ```bash
-cd backend && mvn test                    # prompt assembly, auth, per-user API config, context wiring
-cd ml-service && pip install pytest && pytest   # preprocessing, models, topics
+# Run from the repository root, with Java 17 and an activated Python environment.
+(cd backend && mvn test)
+(cd ml-service && python -m pip install -r requirements-lite.txt pytest httpx && python -m pytest -q)
+npm install --prefix /tmp/yci-ui-tests jsdom
+NODE_PATH=/tmp/yci-ui-tests/node_modules node --test frontend/tests/workflow.test.cjs
+node --check frontend/js/app.js
+node --check frontend/js/api.js
 ```
 
-`pytest` is deliberately absent from both requirements files, so a fresh virtualenv needs
-that one extra install. Note also that `demand.py` — the module the whole service exists
-for — has no tests; `ml-service/README.md` §8 says what to write first.
+Tests cover demand extraction, independent TF-IDF batches, transcript outcomes, backend
+ownership/validation/persistence and frontend workflows. `pytest`, `httpx` and `jsdom`
+are test-only dependencies. See [the dated results](docs/review-2026-11-01.md#verification)
+for what was actually run and the limits of deterministic checks.
 
 `UserApiConfigTest` is the one to read before touching credential handling: it pins that a
 user's key overrides the server's, that `""` clears it back, that a saved key is never
@@ -553,7 +612,9 @@ Inside Docker, without a local JDK:
 ```bash
 docker run --rm -v "$PWD/backend":/app -v yci_m2:/root/.m2 -w /app \
   maven:3.9-eclipse-temurin-17 mvn test
-docker compose exec ml-service pytest
+# Python source tests are not copied into the production image; use a disposable runner.
+docker run --rm -v "$PWD/ml-service":/work -w /work python:3.10-slim \
+  sh -c 'pip install -r requirements-lite.txt pytest httpx && python -m pytest -q'
 ```
 
 The Spring tests boot the context with `SpringApplicationBuilder` rather than

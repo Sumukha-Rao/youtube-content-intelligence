@@ -52,7 +52,9 @@ const API = (() => {
       throw new AuthError((data && data.message) || "Your session expired. Please sign in again.");
     }
     if (!res.ok) {
-      throw new Error((data && data.message) || res.status + " " + res.statusText);
+      const error = new Error((data && data.message) || res.status + " " + res.statusText);
+      error.status = res.status;
+      throw error;
     }
     return data;
   }

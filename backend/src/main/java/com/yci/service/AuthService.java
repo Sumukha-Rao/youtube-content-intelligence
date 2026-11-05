@@ -54,6 +54,10 @@ public class AuthService {
         if (req.password() == null || req.password().length() < 8) {
             throw new BadRequestException("Password must be at least 8 characters.");
         }
+        if (req.password().getBytes(java.nio.charset.StandardCharsets.UTF_8).length > 72) {
+            throw new BadRequestException("Password is too long. Please use a shorter password.");
+        }
+        if (req.name() != null && req.name().trim().length() > 150) throw new BadRequestException("Name must be at most 150 characters.");
         if (userRepo.findByEmail(email).isPresent()) {
             throw new BadRequestException("An account with that email already exists.");
         }
@@ -73,7 +77,7 @@ public class AuthService {
     public Dto.AuthResponse login(Dto.LoginRequest req) {
         String email = normalizeEmail(req.email());
         User u = userRepo.findByEmail(email)
-                .filter(x -> req.password() != null && encoder.matches(req.password(), x.getPasswordHash()))
+                .filter(x -> passwordMatches(req.password(), x.getPasswordHash()))
                 .orElseThrow(() -> new BadRequestException("Incorrect email or password."));
         settingsService.getOrCreate(u.getId());
         return issue(u);
@@ -118,10 +122,24 @@ public class AuthService {
         return new Dto.AuthResponse(t.getToken(), new Dto.UserDto(u.getId(), u.getName(), u.getEmail()));
     }
 
+    private boolean passwordMatches(String password, String hash) {
+        if (password == null) return false;
+        try { return encoder.matches(password, hash); }
+        catch (IllegalArgumentException invalidPassword) { return false; }
+    }
+
     private static String normalizeEmail(String email) {
-        if (email == null || !email.contains("@") || email.length() < 5) {
+        if (email == null || !email.contains("@") || email.trim().length() < 5 || email.trim().length() > 255) {
             throw new BadRequestException("A valid email address is required.");
         }
-        return email.trim().toLowerCase(Locale.ROOT);
+        String normalized = email.trim().toLowerCase(Locale.ROOT);
+        try {
+            var address = new jakarta.mail.internet.InternetAddress(normalized, true);
+            address.validate();
+            if (!address.getAddress().equals(normalized)) throw new jakarta.mail.internet.AddressException();
+        } catch (jakarta.mail.internet.AddressException e) {
+            throw new BadRequestException("A valid email address is required.");
+        }
+        return normalized;
     }
 }

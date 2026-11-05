@@ -1,9 +1,11 @@
-# ML Service — audience demand extraction
+# ML Service — audience demand and subtitle retrieval
 
 The Python half of [YouTube Content Intelligence](../README.md). A FastAPI service that
-reads a channel's comments and answers one question: **what is this audience asking for?**
+reads a channel's comments to determine **what this audience is asking for**, and
+retrieves existing YouTube captions for on-demand recommendation summaries. The backend
+uses its existing LLM for summaries; Python does not generate them or add a new model.
 
-Its output is never shown to anyone. It goes into the prompt the backend hands to the LLM,
+Demand-analysis output is not shown directly. It goes into the prompt the backend hands to the LLM,
 which is what turns it into readable video ideas. So the goal here is not a pretty topic
 list — it is evidence a language model cannot misread.
 
@@ -14,14 +16,15 @@ Companion docs: [`../README.md`](../README.md) (what the platform does),
 
 ## 1. What the backend actually calls
 
-Only two of the eight endpoints below are on the idea path:
+Three of the nine endpoints are used by the backend:
 
 | Endpoint | Called by |
 |---|---|
 | `POST /ml/demand` | `MlClient.demand(...)` — once per channel per run, 180 s timeout |
 | `GET /health` | `MlClient.healthy()` — 5 s timeout |
+| `POST /ml/transcripts` | `MlClient.transcripts(...)` — on-demand caption retrieval, 240 s timeout |
 
-The rest are standalone analysis endpoints. They work, they are tested, and nothing in
+The other six are standalone analysis endpoints. They work, they are tested, and nothing in
 the Spring Boot backend invokes them — useful for inspecting a comment set by hand, and
 the obvious starting point if you want to put more ML on the idea path.
 
@@ -136,6 +139,36 @@ Intent classes: `CONTENT_REQUEST`, `QUESTION`, `PRAISE`, `CRITICISM`, `SUGGESTIO
 `/ml/train` rewrites the model files in place and is unauthenticated, like everything
 here — see §7.
 
+### 3.1 `POST /ml/transcripts`
+
+The backend supplies only the video IDs already associated with the selected idea:
+
+```json
+{"video_ids": ["VIDEO_ID_11"], "language": "en"}
+```
+
+`VIDEO_ID_11` above is a placeholder; replace it with an actual 11-character YouTube
+video ID. The endpoint validates IDs, deduplicates them and accepts at most ten.
+The response is `{"videos": [...]}`, with one result per unique ID:
+
+| Status | Fields and meaning |
+|---|---|
+| `available` | `video_id`, `text`, `language`: actual fetched captions, text capped at 16,000 characters per video. |
+| `unavailable` | `video_id`: no suitable accessible track, disabled captions or an unavailable/restricted video. |
+| `error` | `video_id`, `message`: blocked, network, parser or empty-response failures; retry may succeed. |
+
+Both requirements files pin `youtube-transcript-api==1.2.4`. The implementation uses
+its [instance API](https://github.com/jdepoix/youtube-transcript-api/tree/v1.2.4):
+`YouTubeTranscriptApi().list()`, `find_transcript()` and `fetch().to_raw_data()`.
+Manual and automatic tracks are supported. Selection prefers the requested language,
+its base/regional variants, then English; it does not translate captions. HTTP connect
+and read timeouts are 5 and 15 seconds per request, respectively.
+
+No proxy, cookies, access-restriction bypass or speech transcription is used. The
+backend distinguishes missing captions from temporary errors, limits the LLM input,
+validates source IDs and caches successful summaries. It never summarizes titles or
+descriptions in place of unavailable captions. See [the full feature flow](../docs/recommendation-features.md).
+
 ## 4. Code map
 
 | File | Role |
@@ -148,7 +181,8 @@ here — see §7.
 | `app/topics.py` | Generic topic discovery, request clustering, similarity. Not on the idea path. |
 | `app/models.py` | Sentiment (TF-IDF → Logistic Regression) and intent (TF-IDF → calibrated LinearSVC). |
 | `app/train.py` | `python -m app.train` — the same training as `POST /ml/train`, from a shell. |
-| `app/schemas.py` | Every request and response model. The API contract in one file. |
+| `app/schemas.py` | NLP request and response models. |
+| `app/transcripts.py` | Caption request schema and route, language selection, timeouts and per-video results. |
 | `data/*.csv` | Seed training data: 52 intent rows, 45 sentiment rows. |
 | `models/*.joblib` | Trained artefacts. Written to `MODEL_DIR`, trained on demand if missing. |
 
@@ -182,7 +216,7 @@ curl -s localhost:8000/ml/demand -H 'Content-Type: application/json' -d '{
 ```
 
 Interactive docs are at <http://localhost:8000/docs> — FastAPI generates them from
-`app/schemas.py`, so they are always current.
+the registered endpoint schemas, including `app/transcripts.py`.
 
 The first start with the full requirements takes ~20 s while `all-MiniLM-L6-v2` downloads
 and loads; `/health` does not answer until it has. Set `MODEL_DIR` to control where the
@@ -197,12 +231,16 @@ configuration, not a hack.
 
 | | `requirements.txt` | `requirements-lite.txt` |
 |---|---|---|
-| Extra packages | sentence-transformers, bertopic, hdbscan, nltk (and `torch`) | — |
+| Extra semantic packages | sentence-transformers, bertopic, hdbscan, nltk (and `torch`) | — |
+| Caption retrieval | `youtube-transcript-api==1.2.4` | `youtube-transcript-api==1.2.4` |
 | Image | 10.4 GB | **711 MB** |
 | Memory in use | 1.26 GB | **108 MB** |
 | `/health` reports | `sentence-transformers` | `tfidf-fallback` |
 | Request-pattern matching | identical (pure regex) | identical |
 | Clustering of paraphrases | semantic embeddings | TF-IDF vectors |
+
+The image-size and memory figures above are historical measurements, not fixed budgets;
+measure the current build before sizing a deployment. Both profiles support captions.
 
 What survives intact is the part that matters most: explicit asks are found by regex,
 which needs no model at all, and labels go through the same stopword list either way.
@@ -220,19 +258,26 @@ for 1 GiB hosts; see [`../AZURE_DEPLOYMENT.md`](../AZURE_DEPLOYMENT.md) §7.
 - **Stateless per request.** Nothing is stored except the trained `.joblib` files.
 - **`comments` and `like_counts` are positional.** A shorter `like_counts` is padded with
   zeros rather than rejected, so a mismatch fails silently — the backend always sends both
-  the same length.
+  the same length. Blank comments are removed together with their matching like weights.
 - **`/ml/demand` can be slow** on a large comment set. The backend allows 180 s.
 
 ## 8. Tests
 
 ```bash
-pip install pytest      # not in either requirements file
-pytest
+# In an activated environment, from ml-service/:
+python -m pip install -r requirements-lite.txt pytest httpx
+python -m pytest -q
 ```
 
-Covers `preprocessing`, `models` and `topics`.
-`demand.py` — the module everything else exists to serve — has **no test coverage**; if
-you touch `REQUEST_PATTERNS` or `_tidy_subject()`, that is the gap to fill first. The
-`_ART` regex note in §2 is exactly the kind of regression a test there would have caught.
+Covers preprocessing, models, topics, demand extraction, positional like weights,
+independent TF-IDF analysis batches and caption retrieval. Caption tests use fake
+library responses to exercise manual/automatic selection, language variants, missing
+tracks, blocked/network/parser failures, empty bodies and input limits.
 
-Inside the running stack: `docker compose exec ml-service pytest`.
+The 2026-11-01 review recorded 35 passing Python tests. A separate startup check used
+the existing sentence-transformer backend; lite-profile tests do not establish live
+YouTube access or model-download availability. See [review results](../docs/review-2026-11-01.md).
+
+Tests and test-only packages are not copied into production images. Run from a source
+checkout or mount the source into a disposable container, as shown in
+[the project test guide](../PROJECT_GUIDE.md#7-tests).

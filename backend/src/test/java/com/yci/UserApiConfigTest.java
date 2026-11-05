@@ -146,4 +146,15 @@ class UserApiConfigTest {
         assertTrue(api.webSearch().isSearxng());
         assertEquals("http://searxng:8080", api.webSearch().baseUrl(), "trailing slash trimmed");
     }
+    @Test
+    void modeOnlyUpdatesCannotKeepAnInvalidVideoLimit() {
+        Long userId = newUser();
+        UserSettings stored = settings.getOrCreate(userId);
+        stored.setRetrievalMode(com.yci.entity.RetrievalMode.LAST_N_DAYS); stored.setRetrievalValue(365); repo.save(stored);
+        var patch = new Dto.SettingsDto("LAST_N_VIDEOS", null, null, null, null, null, null, null, null,
+                null, null, null, null, null, null, null, null, null, null, null);
+        assertThrows(BadRequestException.class, () -> settings.update(userId, patch));
+        assertEquals(com.yci.entity.RetrievalMode.LAST_N_DAYS, repo.findByUserId(userId).orElseThrow().getRetrievalMode());
+    }
+
 }

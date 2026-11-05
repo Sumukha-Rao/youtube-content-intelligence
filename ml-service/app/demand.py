@@ -262,7 +262,11 @@ def analyze_demand(comments: List[str], like_counts: Optional[List[int]] = None,
     Returns ranked demand topics plus supporting counts. Everything here feeds the
     LLM prompt; none of it is rendered for the user.
     """
-    comments = [c for c in (comments or []) if c and str(c).strip()]
+    original = comments or []
+    retained = [i for i, comment in enumerate(original) if comment and str(comment).strip()]
+    comments = [original[i] for i in retained]
+    if like_counts is not None:
+        like_counts = [like_counts[i] if i < len(like_counts) else 0 for i in retained]
     if not comments:
         return {"demand_topics": [], "mentioned_terms": [], "comments_analyzed": 0,
                 "requests_found": 0, "backend": "empty"}

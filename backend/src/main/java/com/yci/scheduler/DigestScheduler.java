@@ -52,8 +52,7 @@ public class DigestScheduler {
                     continue;
                 }
                 if (notifications.sendDigest(settings, finished)) {
-                    finished.setNotified(true);
-                    runRepo.save(finished);
+                    runRepo.markNotified(finished.getId(), finished.getUserId());
                 }
                 // Stamp regardless of delivery so a broken mailbox cannot cause a
                 // regeneration storm on every hourly tick.

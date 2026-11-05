@@ -55,7 +55,7 @@ public class IngestService {
         this.props = props;
     }
 
-    public record IngestResult(int videos, int comments) {}
+    public record IngestResult(int videos, int comments, List<Long> videoIds, List<Long> commentIds) {}
 
     /** Fetch the videos selected by {@code settings} plus their top comments. */
     @Transactional
@@ -67,7 +67,7 @@ public class IngestService {
             log.info("Channel {} returned no videos for the current retrieval settings", channel.getId());
             channel.setLastSyncedAt(LocalDateTime.now());
             channelRepo.save(channel);
-            return new IngestResult(0, 0);
+            return new IngestResult(0, 0, List.of(), List.of());
         }
 
         List<Long> videoIds = new ArrayList<>();
@@ -87,6 +87,7 @@ public class IngestService {
             videoIds.add(videoRepo.save(v).getId());
         }
 
+        List<Long> commentIds = new ArrayList<>();
         int budget = settings.getOwnCommentLimit();
         int perVideo = perVideoBudget(budget, ytVideos.size());
         int fetched = 0, stored = 0;
@@ -96,16 +97,16 @@ public class IngestService {
             List<YouTubeService.YtComment> comments = yt.getComments(ytVideos.get(i).videoId(), want);
             fetched += comments.size();
             for (YouTubeService.YtComment yc : comments) {
-                if (commentRepo.existsByVideoIdAndYoutubeCommentId(videoIds.get(i), yc.commentId())) continue;
-                Comment c = new Comment();
+                Comment c = commentRepo.findByVideoIdAndYoutubeCommentId(videoIds.get(i), yc.commentId())
+                        .orElseGet(Comment::new);
+                if (c.getId() == null) stored++;
                 c.setVideoId(videoIds.get(i));
                 c.setYoutubeCommentId(yc.commentId());
                 c.setParentCommentId(yc.parentId());
                 c.setText(yc.text());
                 c.setPublishedAt(yc.publishedAt());
                 c.setLikeCount(yc.likeCount());
-                commentRepo.save(c);
-                stored++;
+                commentIds.add(commentRepo.save(c).getId());
             }
         }
 
@@ -113,7 +114,7 @@ public class IngestService {
         channelRepo.save(channel);
         log.info("Own channel {}: {} videos, {} comments fetched ({} new)",
                 channel.getId(), ytVideos.size(), fetched, stored);
-        return new IngestResult(ytVideos.size(), fetched);
+        return new IngestResult(ytVideos.size(), fetched, List.copyOf(videoIds), List.copyOf(commentIds));
     }
 
     /** Same for a competitor: video metadata (no ML) plus its top comments. */
@@ -124,7 +125,7 @@ public class IngestService {
         if (ytVideos.isEmpty()) {
             cc.setLastCheckedAt(LocalDateTime.now());
             competitorChannelRepo.save(cc);
-            return new IngestResult(0, 0);
+            return new IngestResult(0, 0, List.of(), List.of());
         }
 
         List<Long> videoIds = new ArrayList<>();
@@ -134,6 +135,8 @@ public class IngestService {
                     .findByCompetitorChannelIdAndYoutubeVideoId(cc.getId(), yv.videoId())
                     .orElseGet(CompetitorVideo::new);
             v.setCompetitorChannelId(cc.getId());
+            v.setChannelName(cc.getChannelName());
+            v.setVideoUrl("https://www.youtube.com/watch?v=" + yv.videoId());
             v.setYoutubeVideoId(yv.videoId());
             v.setTitle(yv.title());
             v.setDescription(yv.description());
@@ -149,6 +152,7 @@ public class IngestService {
             }
         }
 
+        List<Long> commentIds = new ArrayList<>();
         int budget = settings.getCompetitorCommentLimit();
         int perVideo = perVideoBudget(budget, ytVideos.size());
         int fetched = 0;
@@ -158,15 +162,15 @@ public class IngestService {
             List<YouTubeService.YtComment> comments = yt.getComments(ytVideos.get(i).videoId(), want);
             fetched += comments.size();
             for (YouTubeService.YtComment yc : comments) {
-                if (competitorCommentRepo
-                        .existsByCompetitorVideoIdAndYoutubeCommentId(videoIds.get(i), yc.commentId())) continue;
-                CompetitorComment c = new CompetitorComment();
+                CompetitorComment c = competitorCommentRepo
+                        .findByCompetitorVideoIdAndYoutubeCommentId(videoIds.get(i), yc.commentId())
+                        .orElseGet(CompetitorComment::new);
                 c.setCompetitorVideoId(videoIds.get(i));
                 c.setYoutubeCommentId(yc.commentId());
                 c.setText(yc.text());
                 c.setPublishedAt(yc.publishedAt());
                 c.setLikeCount(yc.likeCount());
-                competitorCommentRepo.save(c);
+                commentIds.add(competitorCommentRepo.save(c).getId());
             }
         }
 
@@ -174,7 +178,7 @@ public class IngestService {
         cc.setLastVideoPublishedAt(maxPublished);
         competitorChannelRepo.save(cc);
         log.info("Competitor {}: {} videos, {} comments fetched", cc.getId(), ytVideos.size(), fetched);
-        return new IngestResult(ytVideos.size(), fetched);
+        return new IngestResult(ytVideos.size(), fetched, List.copyOf(videoIds), List.copyOf(commentIds));
     }
 
     private List<YouTubeService.YtVideo> fetchVideos(YouTubeService.Api yt, String youtubeChannelId,

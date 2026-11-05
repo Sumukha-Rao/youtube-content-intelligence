@@ -7,7 +7,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         build-essential gcc && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+# Compose runs this service on the CPU. Keep the full semantic stack without
+# downloading CUDA libraries that cannot be used by this container.
+RUN --mount=type=cache,target=/root/.cache/pip \
+    pip install --timeout 120 --retries 5 --upgrade pip && \
+    pip install --timeout 120 --retries 5 torch --index-url https://download.pytorch.org/whl/cpu && \
+    pip install --timeout 120 --retries 5 -r requirements.txt
 
 COPY app ./app
 COPY data ./data

@@ -1,0 +1,35 @@
+﻿SUCCESS: Hibernation disabled; Fast Startup disabled.
+
+Current sleep capabilities:
+The following sleep states are available on this system:
+    Standby (S0 Low Power Idle) Network Connected
+
+The following sleep states are not available on this system:
+    Standby (S1)
+	The system firmware does not support this standby state.
+	This standby state is disabled when S0 low power idle is supported.
+
+    Standby (S2)
+	The system firmware does not support this standby state.
+	This standby state is disabled when S0 low power idle is supported.
+
+    Standby (S3)
+	The system firmware does not support this standby state.
+	This standby state is disabled when S0 low power idle is supported.
+
+    Hibernate
+	Hibernation has not been enabled.
+
+    Hybrid Sleep
+	Standby (S3) is not available.
+	Hibernation is not available.
+	The hypervisor does not support this standby state.
+
+    Fast Startup
+	Hibernation is not available.
+
+
+D: volume dirty-bit status:
+Volume - D: is NOT Dirty
+
+No shutdown, restart, filesystem repair, or ACL changes were performed.

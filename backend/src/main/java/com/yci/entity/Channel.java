@@ -34,6 +34,13 @@ public class Channel {
     @Column(columnDefinition = "TEXT")
     private String description;
 
+    @Column(name = "content_language", length = 32)
+    private String contentLanguage;
+
+    /** API-verified suggestions and detected niche/audience. */
+    @Column(name = "competitor_suggestions", columnDefinition = "LONGTEXT")
+    private String competitorSuggestions;
+
     @Column(name = "subscriber_count")
     private Long subscriberCount;
 

@@ -25,6 +25,7 @@ public class CompetitorService {
     /** Keeps a single "get ideas" run inside a sane YouTube quota budget. */
     private static final int MAX_COMPETITORS = 10;
 
+    private final com.yci.repository.UserRepository users;
     private final CompetitorChannelRepository channelRepo;
     private final CompetitorVideoRepository videoRepo;
     private final CompetitorCommentRepository commentRepo;
@@ -32,9 +33,10 @@ public class CompetitorService {
     private final YouTubeService youTube;
     private final ApiConfigService apiConfig;
 
-    public CompetitorService(CompetitorChannelRepository channelRepo, CompetitorVideoRepository videoRepo,
+    public CompetitorService(com.yci.repository.UserRepository users, CompetitorChannelRepository channelRepo, CompetitorVideoRepository videoRepo,
                              CompetitorCommentRepository commentRepo, ChannelService channelService,
                              YouTubeService youTube, ApiConfigService apiConfig) {
+        this.users = users;
         this.channelRepo = channelRepo;
         this.videoRepo = videoRepo;
         this.commentRepo = commentRepo;
@@ -45,6 +47,7 @@ public class CompetitorService {
 
     @Transactional
     public Dto.CompetitorChannelDto add(Long userId, String channelUrlOrId) {
+        users.findForUpdate(userId).orElseThrow(() -> new com.yci.exception.ResourceNotFoundException("User not found"));
         List<CompetitorChannel> existing = channelRepo.findByUserId(userId);
         if (existing.size() >= MAX_COMPETITORS) {
             throw new BadRequestException("You can track up to " + MAX_COMPETITORS + " competitor channels.");
@@ -66,7 +69,7 @@ public class CompetitorService {
         cc.setUserId(userId);
         cc.setYoutubeChannelId(channelId);
         cc.setChannelName(details.title());
-        cc.setChannelUrl(channelUrlOrId.trim());
+        cc.setChannelUrl("https://www.youtube.com/channel/" + channelId);
         cc = channelRepo.save(cc);
         log.info("Added competitor {} ({}) for user {}", details.title(), channelId, userId);
         return toDto(cc);
@@ -89,6 +92,8 @@ public class CompetitorService {
         if (!cc.getUserId().equals(userId)) {
             throw new ResourceNotFoundException("Competitor channel not found: " + competitorId);
         }
+        commentRepo.deleteByChannelId(cc.getId());
+        videoRepo.deleteByChannelId(cc.getId());
         channelRepo.delete(cc);
         log.info("Removed competitor {} for user {}", competitorId, userId);
     }

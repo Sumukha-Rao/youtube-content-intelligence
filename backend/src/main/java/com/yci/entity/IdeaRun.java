@@ -43,6 +43,10 @@ public class IdeaRun {
     @Column(columnDefinition = "LONGTEXT")
     private String result;
 
+    /** Validated ideas, related video snapshots, and cached transcript summaries. */
+    @Column(name = "recommendation_data", columnDefinition = "LONGTEXT")
+    private String recommendationData;
+
     @Column(length = 128)
     private String model;
 

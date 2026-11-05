@@ -8,6 +8,10 @@ import java.util.List;
 import java.util.Optional;
 
 public interface CompetitorVideoRepository extends JpaRepository<CompetitorVideo, Long> {
+    @org.springframework.data.jpa.repository.Modifying(flushAutomatically = true)
+    @org.springframework.data.jpa.repository.Query("delete from CompetitorVideo v where v.competitorChannelId = :channelId")
+    void deleteByChannelId(@org.springframework.data.repository.query.Param("channelId") Long channelId);
+
     List<CompetitorVideo> findByCompetitorChannelId(Long competitorChannelId);
 
     /** Scoped to the competitor row — see {@link VideoRepository} for why. */

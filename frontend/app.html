@@ -19,15 +19,15 @@
   <div id="toast-box" class="toast-box"></div>
 
   <!-- ---------------- top bar ---------------- -->
-  <nav class="topbar">
+  <nav class="topbar" aria-label="Workspace navigation">
     <div class="container-xl d-flex align-items-center gap-3">
       <span class="brand">
         <span class="brand-mark">▶</span>
-        <span class="brand-title">Content Intelligence</span>
+        <span class="brand-title">Content Intelligence<span class="brand-subtitle">Creator workspace</span></span>
       </span>
       <div class="ms-auto d-flex align-items-center gap-2">
         <span class="text-muted small d-none d-md-inline" id="user-email"></span>
-        <button class="btn btn-sm btn-ghost" id="btn-theme" type="button" title="Switch theme">
+        <button class="btn btn-sm btn-ghost" id="btn-theme" type="button" title="Switch theme" aria-label="Switch color theme">
           <span id="theme-icon">◐</span>
         </button>
         <button class="btn btn-sm btn-ghost" id="btn-settings" type="button">Settings</button>
@@ -85,6 +85,7 @@
               <button class="btn btn-outline-brand" id="setup-competitor-add" type="button">Add</button>
             </div>
             <div id="setup-competitor-list" class="mb-3"></div>
+              <section id="setup-suggestions" class="mt-3 hidden" aria-live="polite"></section>
 
             <h6 class="section-head mt-4">How much to read per channel</h6>
             <div class="row g-2 align-items-end mb-3">
@@ -125,11 +126,16 @@
 
     <!-- ---------------- home ---------------- -->
     <section id="home" class="hidden">
+      <header class="workspace-heading">
+        <div><p class="eyebrow">A clearer creative direction</p><h1>What will you make next?</h1>
+          <p class="workspace-description">Let your audience and your corner of YouTube inspire the next upload.</p></div>
+        <span class="workspace-note"><span class="note-mark" aria-hidden="true">✦</span> Ideas with a reason behind them</span>
+      </header>
       <div class="row g-3 mb-4">
         <div class="col-lg-4">
           <div class="card h-100 shadow-sm">
             <div class="card-body">
-              <div class="card-eyebrow">Your channel</div>
+              <div class="card-eyebrow"><span class="section-icon" aria-hidden="true">▶</span> Your channel</div>
               <div id="home-channel"></div>
             </div>
           </div>
@@ -137,16 +143,20 @@
         <div class="col-lg-8">
           <div class="card h-100 shadow-sm">
             <div class="card-body">
-              <div class="card-eyebrow">Competitors</div>
+              <div class="card-eyebrow"><span class="section-icon" aria-hidden="true">◎</span> Your creator landscape</div>
               <div id="home-competitors"></div>
+              <section id="home-suggestions" class="mt-3 hidden" aria-live="polite"></section>
             </div>
           </div>
         </div>
       </div>
 
       <div class="generate-panel mb-4">
-        <button class="btn btn-brand btn-lg px-5" id="btn-generate" type="button">Get ideas</button>
-        <div class="form-text mt-2" id="generate-hint"></div>
+        <div class="generate-copy"><span class="generate-symbol" aria-hidden="true">✦</span><div>
+          <h2>Turn those signals into your next idea.</h2>
+          <div class="form-text" id="generate-hint"></div>
+        </div></div>
+        <button class="btn btn-brand btn-lg" id="btn-generate" type="button">Get ideas <span aria-hidden="true">↗</span></button>
       </div>
 
       <!-- progress -->
@@ -177,13 +187,13 @@
           competitor data only. The bundled SearXNG instance is the reliable provider —
           check it under <strong>Settings → API access</strong>.
         </div>
-        <div class="card shadow-sm">
-          <div class="card-body ideas-body" id="result-body"></div>
-        </div>
+        <div class="ideas-body idea-list" id="result-body"></div>
       </div>
 
       <div id="no-results" class="empty-state hidden">
-        <p class="mb-0">No ideas yet. Hit <strong>Get ideas</strong> to generate your first set.</p>
+        <span class="empty-illustration" aria-hidden="true">✦</span>
+        <h3>Your next idea is taking shape.</h3>
+        <p class="mb-0">Connect your sources, then hit <strong>Get ideas</strong>.<br>We’ll turn the signals into something you can make.</p>
       </div>
     </section>
   </main>
@@ -192,7 +202,7 @@
   <div class="offcanvas offcanvas-end offcanvas-wide" tabindex="-1" id="prompt-panel">
     <div class="offcanvas-header">
       <h5 class="offcanvas-title">Full prompt sent to the model</h5>
-      <button type="button" class="btn-close" data-bs-dismiss="offcanvas"></button>
+      <button type="button" class="btn-close" aria-label="Close prompt" data-bs-dismiss="offcanvas"></button>
     </div>
     <div class="offcanvas-body">
       <p class="text-muted small">
@@ -210,7 +220,7 @@
       <div class="modal-content">
         <div class="modal-header">
           <h5 class="modal-title">Settings</h5>
-          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+          <button type="button" class="btn-close" aria-label="Close settings" data-bs-dismiss="modal"></button>
         </div>
         <div class="modal-body">
 
@@ -251,6 +261,7 @@
                 <button class="btn btn-outline-brand" id="set-competitor-add" type="button">Add</button>
               </div>
               <div id="set-competitor-list"></div>
+              <section id="set-suggestions" class="mt-3 hidden" aria-live="polite"></section>
             </div>
 
             <!-- ---- reading ---- -->

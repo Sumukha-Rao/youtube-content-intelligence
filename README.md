@@ -5,17 +5,22 @@ competitors' channels, works out what people are actually asking for, and hands 
 that evidence to an LLM as a single prompt.
 
 The analysis is machinery, not output: the comment mining is never shown. The user sees
-video ideas — and, if they want it, the exact prompt those ideas came from.
+video ideas with related competitor videos, optional transcript-based speaking outlines,
+and the exact prompt those ideas came from.
 
 ### Documentation
 
-| | |
+| Guide | Contents |
 |---|---|
 | **This file** | What the platform does, how the pieces fit, and how to start it locally. |
 | [`PROJECT_GUIDE.md`](PROJECT_GUIDE.md) | The hands-on companion: code map, running without Docker, walking the API by hand, the full configuration reference, and a troubleshooting section indexed by symptom. |
 | [`ml-service/README.md`](ml-service/README.md) | The demand-extraction service on its own — every endpoint, the request→topic pipeline in detail, and the two dependency sets. |
-| [`AZURE_DEPLOYMENT.md`](AZURE_DEPLOYMENT.md) | Deploying to a server, by hand with `az`, inside what an Azure free account covers. |
+| [`AZURE_DEPLOYMENT.md`](AZURE_DEPLOYMENT.md) | Deploying to Azure by hand, with configuration, cost checks and operations. |
 | [`AZURE_TERRAFORM.md`](AZURE_TERRAFORM.md) | The same deployment as code — one `terraform apply`, one-command teardown. |
+| [Feature implementation](docs/recommendation-features.md) | Verified competitor suggestions, related videos, transcript summaries, API routes and migrations. |
+| [Email setup](docs/email-notifications-implementation.md) | SMTP setup, per-account opt-in, testing and scheduler limits; [Word guide](docs/Email_Notifications_Implementation_Guide.docx). |
+| [Windows and Linux startup](docs/windows-local.md) | Platform setup, shared-drive notes and current verification status. |
+| [Review record](docs/review-2026-11-01.md) | Corrections and checks recorded on 2026-11-01. |
 
 ---
 
@@ -38,7 +43,7 @@ Sign up ──▶ Setup (both steps skippable)
             + live web search (optional)
                     │
                     ▼
-              one prompt ──▶ LLM ──▶ video ideas
+              one prompt ──▶ LLM ──▶ ideas + saved related video IDs
                                      (+ "View full prompt")
 ```
 
@@ -48,7 +53,7 @@ instead of asking the model to invent ideas.
 ## 2. Architecture
 
 ```
-Browser (one page: Bootstrap + vanilla JS)
+Browser (auth + creator workspace: Bootstrap + vanilla JS)
         │  REST on the SAME ORIGIN, bearer token
 nginx  ── /api/* ──▶ Spring Boot (auth · ingestion · prompt building · scheduler)
    │                    │            │              │
@@ -175,7 +180,8 @@ sure Ollama listens on all interfaces (`OLLAMA_HOST=0.0.0.0`).
 
 ## 7. Configuration
 
-See [`.env.example`](.env.example). Secrets come only from the environment.
+See [`.env.example`](.env.example). Server defaults come from environment variables;
+per-user overrides are saved through Settings and encrypted when `APP_SECRET_KEY` is set.
 
 | Variable | Purpose |
 |---|---|
@@ -186,7 +192,7 @@ See [`.env.example`](.env.example). Secrets come only from the environment.
 | `WEB_SEARCH_PROVIDER` / `WEB_SEARCH_BASE_URL` | Which provider, *if* a user enables search: `searxng` (default), `duckduckgo` or `none`. |
 | `WEB_SEARCH_FALLBACK` | Try DuckDuckGo when SearXNG comes back empty. |
 | `SEARXNG_SECRET` / `SEARXNG_BASE_URL` | Session secret and self-address for the bundled instance. |
-| `SMTP_*`, `NOTIFY_*`, `APP_URL` | Email digests. Blank `SMTP_HOST` = save the preference, send nothing. |
+| `SMTP_*`, `NOTIFY_*`, `APP_URL` | Email digests. Blank `SMTP_HOST` prevents sending; leave account notifications off until SMTP is ready. |
 | `AUTH_TOKEN_TTL_DAYS` | Session length. |
 
 Per-channel volumes (last N videos vs last N days, comment budgets, web search on/off)
@@ -224,11 +230,16 @@ POST   /api/auth/signup | /login | /logout      GET /api/auth/me
 GET    /api/home                 everything the page needs in one call
 GET    /api/channel              PUT (set/replace)   DELETE
 GET    /api/competitors          POST (add)          DELETE /{id}
+GET    /api/channels/{id}/suggestions
+POST   /api/channels/{id}/suggest-competitors
 GET    /api/settings             PUT
 POST   /api/settings/test/{youtube|llm|websearch}   check the saved credentials
 POST   /api/ideas/generate       queue a run  ->  { runId }
 GET    /api/ideas/runs/{id}      poll: QUEUED | RUNNING | COMPLETED | FAILED
 GET    /api/ideas/latest | /history
+GET    /api/ideas/runs/{runId}/ideas/{ideaId}/related-videos
+GET    /api/ideas/runs/{runId}/ideas/{ideaId}/transcript-summary
+POST   /api/ideas/runs/{runId}/ideas/{ideaId}/transcript-summary
 GET    /api/health               unauthenticated
 ```
 
@@ -246,19 +257,31 @@ as any user. That header no longer exists.
 
 ## 10. Email digests
 
-Opt in per user, daily or weekly. An hourly scheduler picks up whoever is due, generates
-a fresh set of ideas and emails them. With `SMTP_HOST` unset, Spring creates no mail
-sender and the scheduler logs and skips — the preference is still saved, and the settings
-panel says so.
+Opt in under **Settings → Notifications**, with a recipient and a daily or weekly
+frequency. The scheduler checks hourly by default and uses a rolling interval from
+`last_notified_at`, rather than a chosen send time. It generates ideas through the same
+YouTube/ML/LLM pipeline and sends the stored Markdown as plain text.
+
+Blank `SMTP_HOST` prevents sending but can still allow generation for opted-in accounts.
+Keep notifications off until SMTP is ready. `last_notified_at` records an attempt on the
+completed-run delivery path, including send failure; it is not proof of inbox delivery.
+There is no send-now endpoint or independent delivery retry queue.
+See the [email implementation and setup guide](docs/email-notifications-implementation.md).
 
 ## 11. Testing
 
 ```bash
-cd backend && mvn test                          # prompt rules, per-user API config, context wiring
-cd ml-service && pip install pytest && pytest   # preprocessing, models, topics
+# From the repository root; Java 17 and an activated Python environment are required.
+(cd backend && mvn test)
+(cd ml-service && python -m pip install -r requirements-lite.txt pytest httpx && python -m pytest -q)
+npm install --prefix /tmp/yci-ui-tests jsdom
+NODE_PATH=/tmp/yci-ui-tests/node_modules node --test frontend/tests/workflow.test.cjs
 ```
 
-`pytest` is in neither requirements file, so a fresh virtualenv needs that extra install.
+`pytest`, `httpx` and `jsdom` are test dependencies. The frontend ships without a Node
+build step. See the [feature tests](docs/recommendation-features.md#verification) and
+[dated review results](docs/review-2026-11-01.md#verification); deterministic tests do
+not establish live provider or subtitle availability.
 
 The context test boots the app directly rather than via `@SpringBootTest`, because a bean
 cycle (`WebConfig → AuthInterceptor → AuthService → PasswordEncoder`) is exactly the kind
@@ -291,3 +314,19 @@ youtube-content-intelligence/
 ├── PROJECT_GUIDE.md         running it, configuring it, troubleshooting it
 └── AZURE_DEPLOYMENT.md      deploying it — by hand, and AZURE_TERRAFORM.md as code
 ```
+
+### Creator workspace, verified competitors and transcript outlines
+
+Saving your creator channel now discovers and verifies competitor suggestions using the
+existing YouTube API and LLM. New recommendations retain related competitor videos and
+provide a **Get Transcript Summary** button for an original speaking outline based on
+accessible subtitles. Skipping creator setup keeps manual competitor entry available.
+See [implementation, API, migration and test instructions](docs/recommendation-features.md).
+
+The refreshed UI has a split sign-in screen, a responsive creator workspace, light and
+dark themes, verified suggestion cards, numbered idea cards and expandable supporting
+details. Related videos remain visible; transcript summaries load on demand.
+
+The current Azure Terraform configuration uses Azure authentication and a public HTTPS
+repository clone. It requires no GitHub PAT. Local Git uses SSH independently; see
+[deployment authentication](AZURE_TERRAFORM.md#21-authentication-and-github-tokens).

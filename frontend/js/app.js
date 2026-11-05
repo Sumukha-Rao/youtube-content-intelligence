@@ -5,7 +5,7 @@
 (() => {
   if (!API.token()) { location.href = "index.html"; return; }
 
-  const state = { home: null, competitors: [], settings: null, polling: null };
+  const state = { home: null, competitors: [], settings: null, polling: null, pollRun: null, generating: false, addingCompetitors: new Set(), suggestionChannel: null, suggestions: null, suggestionError: null, suggestionLoading: false };
 
   /* ---------------- theme ---------------- */
 
@@ -51,6 +51,7 @@
   }
 
   const num = (n) => (n == null ? "—" : Number(n).toLocaleString());
+  const avatarLetter = (name) => Array.from(String(name || "Y").trim())[0]?.toUpperCase() || "Y";
 
   /* ---------------- boot ---------------- */
 
@@ -81,6 +82,7 @@
     el("step-2").classList.toggle("hidden", n !== 2);
     el("step-dot-1").classList.toggle("active", n === 1);
     el("step-dot-2").classList.toggle("active", n === 2);
+    if (n === 2) loadSuggestions();
   }
 
   el("setup-channel-save").onclick = guard(async () => {
@@ -124,6 +126,7 @@
   });
 
   function renderSetupCompetitors() {
+    renderSuggestions();
     const box = el("setup-competitor-list");
     if (!state.competitors.length) {
       box.innerHTML = '<p class="text-muted small mb-0">No competitors added yet.</p>';
@@ -179,8 +182,12 @@
     renderChannelCard();
     renderCompetitorCards();
     renderLatestRun();
+    loadSuggestions();
 
-    if (state.home.generating) resumeRun();
+    if (state.home.generating) {
+      state.generating = true;
+      resumeRun();
+    }
   }
 
   function renderChannelCard() {
@@ -194,12 +201,14 @@
       return;
     }
     box.innerHTML = `
-      <div class="channel-name">${esc(c.channelName || c.youtubeChannelId)}</div>
+      <div class="channel-identity"><span class="channel-avatar" aria-hidden="true">${esc(avatarLetter(c.channelName))}</span>
+      <div class="channel-name">${esc(c.channelName || c.youtubeChannelId)}<span class="connection-label">Connected channel</span></div></div>
       <div class="text-muted small mb-2">${num(c.subscriberCount)} subscribers</div>
       <div class="small text-muted">${num(c.storedVideos)} videos · ${num(c.storedComments)} comments read</div>`;
   }
 
   function renderCompetitorCards() {
+    renderSuggestions();
     const box = el("home-competitors");
     if (!state.competitors.length) {
       box.innerHTML = `
@@ -228,7 +237,11 @@
   function showResult(run) {
     hide(el("no-results"));
     show(el("result-box"));
-    el("result-body").innerHTML = renderMarkdown(run.result);
+    if (run.recommendations && Array.isArray(run.recommendations.ideas)) {
+      renderIdeaCards(run);
+    } else {
+      el("result-body").innerHTML = renderMarkdown(run.result);
+    }
     el("result-meta").textContent =
       (run.model || "model") + (run.webSearchUsed ? " · web search" : "") +
       (run.completedAt ? " · " + new Date(run.completedAt).toLocaleString() : "");
@@ -241,10 +254,152 @@
     el("websearch-note").classList.toggle("hidden", !(wanted && !run.webSearchUsed));
   }
 
+  /* ---------------- verified competitor suggestions ---------------- */
+
+  async function loadSuggestions(retry = false) {
+    const channel = state.home.channel;
+    const channelId = channel ? channel.id : null;
+    if (state.suggestionChannel !== channelId) {
+      state.suggestionChannel = channelId;
+      state.suggestions = null;
+      state.suggestionError = null;
+      state.suggestionLoading = false;
+    }
+    if (!channel || state.suggestionLoading || (!retry && (state.suggestions || state.suggestionError))) {
+      renderSuggestions();
+      return;
+    }
+    state.suggestionLoading = true;
+    state.suggestionError = null;
+    renderSuggestions();
+    try {
+      const path = "/api/channels/" + channelId;
+      let result = await API.get(path + "/suggestions");
+      if (!result) result = await API.post(path + "/suggest-competitors");
+      if (state.suggestionChannel === channelId) state.suggestions = result;
+    } catch (err) {
+      if (err instanceof API.AuthError) { location.href = "index.html"; return; }
+      if (state.suggestionChannel === channelId) state.suggestionError = err.message;
+    } finally {
+      if (state.suggestionChannel === channelId) {
+        state.suggestionLoading = false;
+        renderSuggestions();
+      }
+    }
+  }
+
+  function renderSuggestions() {
+    ["setup-suggestions", "home-suggestions", "set-suggestions"].forEach((id) => {
+      const box = el(id);
+      if (!state.home || !state.home.channel) { hide(box); box.innerHTML = ""; return; }
+      show(box);
+      let body = '<h6 class="suggestion-heading">Suggested Competitor Channels</h6>';
+      if (state.suggestionLoading) {
+        body += '<p class="small text-muted"><span class="spinner-border spinner-border-sm"></span> Finding and verifying channels…</p>';
+      } else if (state.suggestionError) {
+        body += '<p class="text-danger small">' + esc(state.suggestionError) + '</p><button class="btn btn-sm btn-outline-secondary" data-retry>Retry suggestions</button>';
+      } else if (state.suggestions) {
+        body += '<p class="small text-muted">' + esc(state.suggestions.detected_niche) + '</p>';
+        const suggestions = state.suggestions.suggested_channels || [];
+        if (!suggestions.length) body += '<p class="small text-muted">No verified suggestions found. You can add competitors manually.</p>';
+        body += '<div class="suggestion-grid">' + suggestions.map((c, index) => {
+          const added = state.competitors.some((v) => v.youtubeChannelId === c.channel_id);
+          const adding = state.addingCompetitors.has(c.channel_id);
+          return `<div class="suggestion-card">
+            <div class="suggestion-card-top"><span class="suggestion-avatar" aria-hidden="true">${esc(avatarLetter(c.name))}</span>
+              <span class="verified-label">✓ Verified</span></div>
+            <a class="suggestion-name" href="https://www.youtube.com/channel/${encodeURIComponent(c.channel_id)}" target="_blank" rel="noopener noreferrer">${esc(c.name)}</a>
+            <div class="suggestion-category">${esc(c.category)}</div>
+            <p class="small text-muted">${esc(c.reason)}</p>
+            <button class="btn btn-sm btn-outline-brand" data-suggestion="${index}" ${added || adding ? "disabled" : ""}>${added ? "Added" : adding ? "Adding…" : "Add Competitor"}</button>
+          </div>`;
+        }).join("") + '</div>';
+      }
+      box.innerHTML = body;
+      const retry = box.querySelector("[data-retry]");
+      if (retry) retry.onclick = () => loadSuggestions(true);
+      box.querySelectorAll("[data-suggestion]").forEach((button) => {
+        button.onclick = guard(async () => {
+          const c = state.suggestions.suggested_channels[Number(button.dataset.suggestion)];
+          if (state.addingCompetitors.has(c.channel_id)) return;
+          state.addingCompetitors.add(c.channel_id);
+          renderSuggestions();
+          try {
+            const added = await API.post("/api/competitors", { channelUrl: c.channel_id });
+            state.competitors.push(added);
+            renderSetupCompetitors(); renderSettingsCompetitors(); renderCompetitorCards();
+          } finally {
+            state.addingCompetitors.delete(c.channel_id);
+            renderSuggestions();
+          }
+        });
+      });
+    });
+  }
+
+  /* ---------------- idea cards and transcript summaries ---------------- */
+
+  function videoLinks(videos) {
+    if (!videos || !videos.length) return '<p class="small text-muted">No related competitor videos.</p>';
+    return '<ul class="video-link-list">' + videos.map((v) => `<li><a href="https://www.youtube.com/watch?v=${encodeURIComponent(v.video_id)}" target="_blank" rel="noopener noreferrer">${esc(v.title)}</a> — ${esc(v.channel_name)}</li>`).join("") + '</ul>';
+  }
+
+  function summaryHtml(summary) {
+    if (!summary) return "";
+    if (summary.status === "unavailable") return '<p class="mt-3">No transcript available</p>';
+    const list = (items) => '<ol>' + (items || []).map((p) => '<li>' + esc(p) + '</li>').join("") + '</ol>';
+    return `<div class="transcript-panel"><p class="eyebrow">From the source videos</p><h5>Transcript Summary</h5>
+      <h6>Topic</h6><p>${esc(summary.idea_title)}</p>
+      <h6>Summary</h6><p>${esc(summary.summary)}</p>
+      <h6>What to Speak About</h6>${list(summary.what_to_speak)}
+      <h6>Important Concepts</h6>${list(summary.important_concepts)}
+      <h6>Suggested Structure</h6>${list(summary.suggested_structure)}
+      <h6>Sources</h6>${videoLinks(summary.sources)}
+      ${summary.warning ? '<p class="text-warning">' + esc(summary.warning) + '</p>' : ''}</div>`;
+  }
+
+  function renderIdeaCards(run) {
+    const data = run.recommendations;
+    el("result-body").innerHTML = data.ideas.map((idea) => `
+      <article class="idea-card" data-idea="${idea.id}">
+        <div class="idea-card-top"><span class="idea-number">${String(Number(idea.id) + 1).padStart(2, "0")}</span><span class="idea-label">Recommended idea</span></div>
+        <h3>${esc(idea.title)}</h3>
+        <p class="idea-description">${esc(idea.description)}</p>
+        <div class="idea-reason"><h6>Why recommended</h6><p>${esc(idea.reason)}</p></div>
+        <details class="idea-exploration"><summary>Explore the evidence and outline <span aria-hidden="true">＋</span></summary>
+          <div class="idea-detail-grid"><section><h6>Evidence</h6><p>${esc(idea.evidence)}</p><h6>Angle</h6><p>${esc(idea.angle)}</p></section>
+          <section><h6>Outline</h6><ul>${(idea.outline || []).map((p) => '<li>' + esc(p) + '</li>').join('')}</ul>
+          <h6>Differentiation</h6><p>${esc(idea.differentiation)}</p></section></div>
+        </details>
+        <div class="idea-sources"><h6>Related Videos</h6>${videoLinks(idea.related_videos)}</div>
+        <div class="idea-actions"><button class="btn btn-outline-brand" data-summary>Get Transcript Summary</button>
+          <span>Build a speaking outline from available subtitles.</span></div>
+        <div data-summary-result aria-live="polite">${summaryHtml(idea.transcript_summary)}</div>
+      </article>`).join("") + '<section class="first-idea-note"><span class="note-mark" aria-hidden="true">↗</span><div><h4>What to make first</h4><p>' + esc(data.what_to_make_first) + '</p></div></section>';
+    el("result-body").querySelectorAll("[data-idea]").forEach((card) => {
+      const button = card.querySelector("[data-summary]");
+      const output = card.querySelector("[data-summary-result]");
+      const idea = data.ideas.find((v) => String(v.id) === card.dataset.idea);
+      button.onclick = guard(async () => {
+        busy(button, true, "Fetching subtitles and summarizing…");
+        output.innerHTML = '<p class="small text-muted mt-2">Fetching subtitles and preparing your outline…</p>';
+        try {
+          const summary = await API.post(`/api/ideas/runs/${run.id}/ideas/${idea.id}/transcript-summary`);
+          if (summary.status === "available") idea.transcript_summary = summary;
+          output.innerHTML = summaryHtml(summary);
+        } catch (err) {
+          if (err instanceof API.AuthError) throw err;
+          inlineMsg(output, err.message);
+        } finally { busy(button, false); }
+      });
+    });
+  }
+
   /* ---------------- generation ---------------- */
 
   el("btn-generate").onclick = guard(async () => {
     const btn = el("btn-generate");
+    state.generating = true;
     busy(btn, true, "Starting…");
     try {
       const job = await API.post("/api/ideas/generate");
@@ -252,7 +407,7 @@
     } catch (err) {
       if (err instanceof API.AuthError) throw err;
       toast(err.message);
-      busy(btn, false);
+      stopPolling();
     }
   });
 
@@ -263,38 +418,54 @@
     if (active) {
       busy(el("btn-generate"), true, "Working…");
       startPolling(active.id);
-    }
+    } else { stopPolling(); }
   });
 
   function startPolling(runId) {
+    if (state.polling) clearTimeout(state.polling);
+    state.pollRun = runId;
+    state.generating = true;
     show(el("progress-box"));
     setProgress(3, "Starting…");
-    if (state.polling) clearInterval(state.polling);
 
-    state.polling = setInterval(guard(async () => {
-      const run = await API.get("/api/ideas/runs/" + runId);
-      setProgress(run.progress, run.message);
-
-      if (run.status === "COMPLETED") {
-        stopPolling();
-        showResult(run);
-        toast("Your ideas are ready.", "success");
-        state.home = await API.get("/api/home");
-        state.competitors = state.home.competitors || [];
-        renderChannelCard();
-        renderCompetitorCards();
-      } else if (run.status === "FAILED") {
-        stopPolling();
-        toast(run.errorMessage || "Idea generation failed.");
+    // Schedule the next read only after this read finishes. Slow servers must
+    // not accumulate overlapping requests or render the same completion twice.
+    const poll = async () => {
+      if (state.pollRun !== runId) return;
+      try {
+        const run = await API.get("/api/ideas/runs/" + runId);
+        if (state.pollRun !== runId) return;
+        setProgress(run.progress, run.message);
+        if (run.status === "COMPLETED") {
+          stopPolling();
+          showResult(run);
+          toast("Your ideas are ready.", "success");
+          state.home = await API.get("/api/home");
+          state.competitors = state.home.competitors || [];
+          renderChannelCard(); renderCompetitorCards();
+          return;
+        }
+        if (run.status === "FAILED") {
+          stopPolling(); toast(run.errorMessage || "Idea generation failed."); return;
+        }
+      } catch (err) {
+        if (err instanceof API.AuthError) { stopPolling(); location.href = "index.html"; return; }
+        if (err.status === 404) { stopPolling(); toast(err.message); return; }
+        if (state.pollRun === runId) el("progress-msg").textContent = "Connection interrupted. Retrying…";
       }
-    }), 2000);
+      if (state.pollRun === runId) state.polling = setTimeout(poll, 2000);
+    };
+    state.polling = setTimeout(poll, 2000);
   }
 
   function stopPolling() {
-    if (state.polling) clearInterval(state.polling);
+    if (state.polling) clearTimeout(state.polling);
     state.polling = null;
+    state.pollRun = null;
+    state.generating = false;
     hide(el("progress-box"));
     busy(el("btn-generate"), false);
+    updateGenerateHint();
   }
 
   function setProgress(pct, message) {
@@ -347,6 +518,7 @@
     ["set-yt-msg", "set-llm-msg", "set-search-msg"].forEach((id) => inlineMsg(el(id), ""));
     renderSettingsCompetitors();
     new bootstrap.Modal(el("settings-modal")).show();
+    loadSuggestions();
   });
 
   /* ---------------- API access ---------------- */
@@ -445,6 +617,7 @@
     try {
       state.home.channel = await API.put("/api/channel", { channelUrl: url });
       inlineMsg(el("set-channel-msg"), "Channel saved.", "success");
+      loadSuggestions();
       renderChannelCard();
     } catch (err) {
       if (err instanceof API.AuthError) throw err;
@@ -457,6 +630,7 @@
   el("set-channel-remove").onclick = guard(async () => {
     await API.del("/api/channel");
     state.home.channel = null;
+    loadSuggestions();
     el("set-channel").value = "";
     inlineMsg(el("set-channel-msg"), "Channel removed.", "success");
     renderChannelCard();
@@ -483,6 +657,7 @@
   });
 
   function renderSettingsCompetitors() {
+    renderSuggestions();
     const box = el("set-competitor-list");
     if (!state.competitors.length) {
       box.innerHTML = '<p class="text-muted small mb-0">No competitor channels.</p>';
@@ -559,8 +734,8 @@
   });
 
   function updateGenerateHint() {
-    const hasSources = !!state.home.channel || state.competitors.length > 0;
-    el("btn-generate").disabled = !hasSources;
+    const hasSources = !!(state.home && state.home.channel) || state.competitors.length > 0;
+    el("btn-generate").disabled = !hasSources || state.generating;
     el("generate-hint").textContent = hasSources
       ? "Reads your channels, analyses the comments, then asks the model."
       : "Add your channel or a competitor in Settings first.";
@@ -572,6 +747,7 @@
 
   el("btn-logout").onclick = async () => {
     try { await API.post("/api/auth/logout"); } catch (e) { /* signing out regardless */ }
+    stopPolling();
     API.setToken(null);
     location.href = "index.html";
   };

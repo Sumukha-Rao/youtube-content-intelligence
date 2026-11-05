@@ -93,7 +93,7 @@ class PromptBuilderTest {
         PromptBuilder small = new PromptBuilder(props);
 
         PromptBuilder.BuiltPrompt p = small.build(ownChannel(), List.of(competitor()), List.of());
-        assertTrue(p.user().length() < 600);
+        assertTrue(p.user().length() <= 400);
         assertTrue(p.user().contains("truncated"));
     }
 
@@ -140,4 +140,22 @@ class PromptBuilderTest {
                 "an explicit request should outrank a higher-scoring mention");
         assertTrue(queries.contains("Steam Deck Setup"));
     }
+    @Test
+    void sourceCatalogFitsBudgetAndIncludesEachCompetitorBeforeAddingMoreVideos() {
+        List<PromptBuilder.Competitor> competitors = new java.util.ArrayList<>();
+        for (int c = 0; c < 10; c++) {
+            List<PromptBuilder.VideoInfo> videos = new java.util.ArrayList<>();
+            for (int v = 0; v < 15; v++) videos.add(new PromptBuilder.VideoInfo(
+                    "Video " + c + "-" + v, 100L, 10L, 0L, LocalDateTime.now(),
+                    "id-" + c + "-" + v, "description ".repeat(100), "https://youtube.com/watch?v=id-" + c + "-" + v,
+                    "Competitor " + c));
+            competitors.add(new PromptBuilder.Competitor("Competitor " + c, videos, MlClient.DemandResponse.empty()));
+        }
+        var prompt = builder().build(null, competitors, List.of(), 24000);
+        assertTrue(prompt.user().length() <= 24000);
+        assertEquals(10, prompt.suppliedVideos().stream().map(PromptBuilder.VideoInfo::channelName).distinct().count());
+        for (var video : prompt.suppliedVideos()) assertTrue(prompt.user().contains("\"video_id\":\"" + video.videoId() + "\""));
+        assertTrue(prompt.suppliedVideos().size() < 150, "only complete records that fit should be supplied");
+    }
+
 }

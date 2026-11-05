@@ -18,16 +18,31 @@
 <body class="auth-page">
   <div id="toast-box" class="toast-box"></div>
 
-  <div class="container" style="max-width:460px;">
-    <div class="text-center mb-4">
-      <div class="brand brand-lg justify-content-center mb-2">
-        <span class="brand-mark">▶</span>
-        <span class="brand-title">YouTube Content Intelligence</span>
+  <main class="auth-shell">
+    <section class="auth-story" aria-labelledby="auth-story-title">
+      <a class="brand auth-brand" href="index.html">
+        <span class="brand-mark" aria-hidden="true">▶</span><span class="brand-title">Content Intelligence</span>
+      </a>
+      <div class="auth-story-copy">
+        <p class="eyebrow">Made for your next upload</p>
+        <h1 id="auth-story-title">Good ideas start<br>with <em>listening.</em></h1>
+        <p class="auth-description">Turn the questions your audience asks and the videos your competitors make into a clearer plan for what comes next.</p>
+        <div class="signal-stack" aria-label="How your ideas come together">
+          <div class="signal-row"><span class="signal-number">01</span><div><strong>Listen to your audience</strong><span>Find the topics people want you to cover.</span></div><span class="signal-arrow" aria-hidden="true">↗</span></div>
+          <div class="signal-row"><span class="signal-number">02</span><div><strong>Find your opportunity</strong><span>See what similar creators are talking about.</span></div><span class="signal-arrow" aria-hidden="true">↗</span></div>
+          <div class="signal-row"><span class="signal-number">03</span><div><strong>Make it your own</strong><span>Start with an idea and a practical outline.</span></div><span class="signal-arrow" aria-hidden="true">↗</span></div>
+        </div>
       </div>
-      <p class="text-muted mb-0">Find out what to make next, from your own audience and your competitors.</p>
+      <p class="auth-story-footer"><span class="tiny-play" aria-hidden="true">▶</span> Your audience. Your perspective. Your next video.</p>
+    </section>
+    <section class="auth-form-shell" aria-labelledby="auth-heading">
+    <div class="auth-heading mb-4">
+      <p class="eyebrow">Your creator workspace</p>
+      <h2 id="auth-heading">Welcome back.</h2>
+      <p class="text-muted mb-0" id="auth-subheading">A little insight. A better next video.</p>
     </div>
 
-    <div class="card shadow-sm">
+    <div class="card auth-card">
       <div class="card-body p-4">
         <ul class="nav nav-pills nav-fill mb-4" role="tablist">
           <li class="nav-item">
@@ -63,7 +78,8 @@
     <p class="text-center text-muted small mt-3 mb-0">
       Bring your own YouTube and model API keys once you're in — Settings → API access.
     </p>
-  </div>
+    </section>
+  </main>
 
   <script src="js/config.js"></script>
   <script src="js/api.js"></script>
@@ -79,6 +95,8 @@
       el("password-hint").classList.toggle("hidden", !signup);
       el("submit").textContent = signup ? "Create account" : "Sign in";
       el("password").setAttribute("autocomplete", signup ? "new-password" : "current-password");
+      el("auth-heading").textContent = signup ? "Your next chapter." : "Welcome back.";
+      el("auth-subheading").textContent = signup ? "Create a workspace for ideas worth making." : "A little insight. A better next video.";
       el("msg").innerHTML = "";
     }
     el("tab-login").onclick = () => setMode("login");

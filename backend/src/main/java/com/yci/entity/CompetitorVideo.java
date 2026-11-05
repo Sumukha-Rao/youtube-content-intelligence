@@ -28,6 +28,12 @@ public class CompetitorVideo {
     @Column(length = 512)
     private String title;
 
+    @Column(name = "video_url", length = 512)
+    private String videoUrl;
+
+    @Column(name = "channel_name")
+    private String channelName;
+
     @Column(columnDefinition = "MEDIUMTEXT")
     private String description;
 

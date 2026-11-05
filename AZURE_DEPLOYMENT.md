@@ -1,7 +1,8 @@
 # Deploying to Azure on a Free Account
 
-Step-by-step deployment of this project to Azure using only what the free account
-actually covers. Companion to [`README.md`](README.md) and
+Step-by-step deployment of this project to a small Azure VM and managed database.
+Check subscription eligibility, regional capacity and current pricing before provisioning;
+this guide does not guarantee a free deployment. Companion to [`README.md`](README.md) and
 [`PROJECT_GUIDE.md`](PROJECT_GUIDE.md).
 
 This is the by-hand version, with `az` commands you run and read one at a time.
@@ -9,13 +10,15 @@ For the same deployment as code — one `terraform apply`, and a teardown that i
 one command rather than a checklist — see [`AZURE_TERRAFORM.md`](AZURE_TERRAFORM.md).
 
 The LLM provider is out of scope here — you will supply `LLM_API_KEY` and `LLM_BASE_URL`
-pointing at your own compute instance. Every other part of the stack is covered.
+pointing at your chosen OpenAI-compatible provider or compute instance. Provider usage
+and quotas are separate from Azure infrastructure costs.
 
 ---
 
 ## 1. The target architecture
 
-Two Azure resources. That is the whole deployment.
+Two main workloads: an Azure VM and managed MySQL, with supporting network, disk,
+public-IP and firewall resources.
 
 ```
                     Internet
@@ -43,36 +46,31 @@ Two Azure resources. That is the whole deployment.
 
 ### Why this shape
 
-The free account gives you **750 hours/month of a B1s, B2ats_v2 or B2pts_v2 VM** and
-**750 hours/month of a MySQL Flexible Server B1ms** for 12 months. 750 hours is slightly
-more than a calendar month, so one of each can run continuously.
+Eligible accounts can use limited-time Linux VM and MySQL B1ms allowances. Check
+[Azure's current free-service listing](https://azure.microsoft.com/en-in/pricing/free-services/)
+for the included hours, storage and available sizes in your subscription. The commands
+below target x86-64; an Arm SKU also requires compatible images and dependencies.
 
 | Alternative | Why not |
 |---|---|
 | **App Service** | The free F1 tier does not run custom containers, and this backend is a container. B1 (the cheapest tier that does) is a paid tier. |
 | **Container Apps** | The monthly free grant (180,000 vCPU-seconds) covers roughly 8 days of a single always-on 0.25-vCPU replica. Two always-on services run past it and start billing. It is a good fit only if you accept scale-to-zero and cold starts. |
 | **AKS** | The control plane is free; the node pool is not, and the smallest usable node is outside the free VM sizes. |
-| **Container Registry** | Not in the free tier (Basic is roughly $5/month). Avoided entirely by building images on the VM. |
+| **Container Registry** | Adds another service and possible charges. This deployment builds images on the VM instead. |
 | **Static Web Apps** | Genuinely free and a fine home for `frontend/`, but it adds a second origin, CORS, and a service you do not need — Caddy already serves the static files. |
-| **MySQL in a container on the VM** | It would eat ~440 MB of the VM's 1 GiB. The managed server is free for 12 months and takes that load off the box entirely. |
+| **MySQL in a container on the VM** | It would eat ~440 MB of the VM's 1 GiB. The managed server takes that load off the box; verify free-offer eligibility separately. |
 
 So: **one VM, one managed database.** Everything else would add cost, cold starts, or
 moving parts without buying anything.
 
 ### What this costs
 
-Free for 12 months: the VM compute (750 h), two 64 GB P6 managed disks, and the MySQL
-B1ms instance with its included storage.
-
-Not free, and small: a **Standard public IPv4 address** (~$3–4/month — Basic SKU IPs were
-retired, so an internet-facing VM must have one) and **outbound data transfer** past the
-monthly free allowance. Both come out of the $200 credit while it lasts, then bill
-normally. Set a budget alert in §9 and treat "free account" as "a few dollars a month",
-not zero.
-
-> Free-tier quantities change. Confirm current limits on the portal's **Free services**
-> page before you provision — and create resources *from that page* where possible, since
-> free tiers are not always the default selection elsewhere.
+Compute, disk, database, public IP and traffic are separate billing items. Free-service
+allowances are conditional and expire; resources can continue billing afterward.
+Use [Azure's pricing calculator](https://azure.microsoft.com/en-us/pricing/calculator/)
+and [public-IP pricing](https://azure.microsoft.com/en-us/pricing/details/ip-addresses/)
+for your region and currency, then set the budget alerts in §9. Alerts do not cap spend
+or stop resources. YouTube quotas, LLM usage and SMTP provider terms are separate.
 
 ---
 
@@ -269,7 +267,7 @@ docker compose version
 ### 6.3 The code
 
 ```bash
-git clone <your repository url> ~/youtube-content-intelligence
+git clone https://github.com/Sumukha-Rao/youtube-content-intelligence.git ~/youtube-content-intelligence
 cd ~/youtube-content-intelligence
 ```
 
@@ -282,6 +280,17 @@ rsync -av --exclude '.venv' --exclude '.git' --exclude 'target' --exclude '__pyc
   youtube-content-intelligence/ azureuser@$SITE:~/youtube-content-intelligence/
 ```
 
+The public project can be cloned over HTTPS without a GitHub PAT:
+`https://github.com/Sumukha-Rao/youtube-content-intelligence.git`. Azure authentication
+is separate. If the repository becomes private, provision access on the VM (for example,
+a read-only deploy key) or copy the source; your laptop's SSH key is not automatically
+available there. Do not put a PAT in a clone URL or Terraform input. See
+[the Terraform authentication notes](AZURE_TERRAFORM.md#21-authentication-and-github-tokens).
+
+Publish local source changes before using `git pull` on the VM. When copying source,
+also exclude `.env`, `.env.*`, `*.tfvars`, `*.tfstate*`, `.terraform` and `outputs` so
+local secrets and state do not travel with the application checkout.
+
 ### 6.4 Load the schema
 
 **Do not skip this.** In local Docker, `database/schema.sql` is run automatically by the
@@ -290,14 +299,15 @@ MySQL container's entrypoint. A managed server has no such hook.
 Hibernate's `ddl-auto=update` would create most tables on its own, but not correctly:
 several entities use plain `Long userId` columns rather than JPA associations, so Hibernate
 emits **no foreign keys** for `user_settings`, `idea_runs`, `auth_tokens` or
-`competitor_comments`. Deleting an account would then orphan its rows. Load the file.
+`competitor_comments`. Services explicitly clean up dependent rows, but SQL constraints
+are still needed for direct SQL and other writers. Load the file for a fresh database.
 
 ```bash
 sudo apt-get install -y mysql-client
-mysql -h <MYSQL_HOST> -u yciadmin -p --ssl-mode=REQUIRED < database/schema.sql
+mysql -h "<MYSQL_HOST>" -u yciadmin -p --ssl-mode=REQUIRED < database/schema.sql
 
 # Expect 10 tables and, at this point, zero users — accounts are created by signing up.
-mysql -h <MYSQL_HOST> -u yciadmin -p --ssl-mode=REQUIRED \
+mysql -h "<MYSQL_HOST>" -u yciadmin -p --ssl-mode=REQUIRED \
   -e "SHOW TABLES FROM yci; SELECT COUNT(*) AS users FROM yci.users;"
 ```
 
@@ -305,11 +315,18 @@ mysql -h <MYSQL_HOST> -u yciadmin -p --ssl-mode=REQUIRED \
 applied to an empty server, so add the new `user_settings` columns once:
 
 ```bash
-mysql -h <MYSQL_HOST> -u yciadmin -p --ssl-mode=REQUIRED \
+mysql -h "<MYSQL_HOST>" -u yciadmin -p --ssl-mode=REQUIRED \
   < database/migrations/001_user_api_config.sql
 ```
 
 ("Duplicate column name" means it already ran — `ddl-auto=update` may have got there first.)
+
+For an existing database with automatic updates disabled, inspect the schema and apply
+[migration 002](database/migrations/002_competitor_suggestions_and_summaries.sql) once
+when its columns are missing. It adds verified suggestions/language, competitor-video
+snapshots and structured recommendation JSON to existing tables. Do not rerun it if
+Hibernate or a previous migration already added the columns. The table count stays ten.
+Old Markdown runs remain readable; new runs provide related videos and summary buttons.
 
 ### 6.5 Same-origin frontend — nothing to do
 
@@ -384,11 +401,21 @@ the app.
 
 ---
 
+For email delivery, follow the [SMTP and notification guide](docs/email-notifications-implementation.md).
+Keep account notifications off until SMTP is ready: an empty host prevents sending but
+can still allow scheduled generation. The hourly check uses rolling daily/weekly attempt
+intervals and does not guarantee inbox delivery. To apply changed SMTP values, recreate
+the backend with `--env-file .env -f deploy/azure/docker-compose.azure.yml`; a simple
+container restart does not reload environment values. Optional `SMTP_AUTH` and
+`SMTP_STARTTLS` overrides require explicit Compose forwarding.
+
+---
+
 ## 7. Step 5 — Fitting in 1 GiB
 
-Measured on the local stack, the full images use: backend 435 MB, **ml-service 1.26 GB**,
-MySQL 439 MB, nginx 17 MB. That does not fit in 1 GiB. Two changes make it fit, and both
-are already in the repository:
+Historical local runtime measurements for the full stack were: backend 435 MB, **ml-service 1.26 GB**,
+MySQL 439 MB, nginx 17 MB. That exceeds 1 GiB. The repository provides two
+configurations to reduce the footprint; verify current usage on the target VM:
 
 ### `ml-service/Dockerfile.lite` + `requirements-lite.txt`
 
@@ -429,6 +456,11 @@ caps every service:
 
 Only Caddy publishes ports; the rest talk over the internal Docker network and are not
 reachable from the internet.
+
+The size/memory numbers above are earlier measurements, not guarantees for a new build.
+Watch current memory during ingestion and generation, including the new on-demand
+subtitle requests. Both Python profiles include `youtube-transcript-api==1.2.4`; the
+caption feature does not require adding a model or changing the existing NLP profile.
 
 ### Web search on a 1 GiB VM
 
@@ -513,6 +545,21 @@ Some swap usage is expected and fine. Containers being killed and restarted is n
 
 ---
 
+### Verify the current recommendation workflow
+
+After the health checks, sign in through HTTPS and save a creator channel. Only verified
+suggestions should appear, with **Add Competitor** actions. Skipping creator setup hides
+automatic suggestions and permits manual competitors. Generate a new run and confirm
+related competitor links appear under each numbered idea card.
+
+Request **Get Transcript Summary** and check loading, speaking points and source links.
+Missing accessible captions must show **No transcript available**; network or blocked
+retrievals must show a retryable error. Do not work around YouTube access restrictions.
+The refreshed UI and [feature routes](docs/recommendation-features.md#api) use the same
+public origin. Existing Markdown-only runs do not acquire associations retroactively.
+
+---
+
 ## 9. Step 7 — Operations
 
 ### Start on boot
@@ -530,7 +577,10 @@ git pull
 docker compose --env-file .env -f deploy/azure/docker-compose.azure.yml up -d --build
 ```
 
-Rebuilding only what changed is faster: append the service name, e.g. `--build backend`.
+Rebuild both backend and ML service when deploying the recommendation features, so
+the Java endpoints and caption dependency stay in step. Frontend files are mounted
+from the checkout and update after refresh. For later isolated changes, append the
+relevant service name to rebuild only that service.
 
 ### Logs
 
@@ -545,7 +595,7 @@ The managed server takes automatic backups with a 7-day retention by default. Fo
 you control:
 
 ```bash
-mysqldump -h <MYSQL_HOST> -u yciadmin -p --ssl-mode=REQUIRED \
+mysqldump -h "<MYSQL_HOST>" -u yciadmin -p --ssl-mode=REQUIRED \
   --single-transaction --routines yci > yci-backup-$(date +%F).sql
 ```
 
@@ -599,7 +649,7 @@ az vm show -d -g $RG -n $VM_NAME --query publicIps -o tsv
 From the VM, prove connectivity independently of the app:
 
 ```bash
-mysql -h <MYSQL_HOST> -u yciadmin -p --ssl-mode=REQUIRED -e "SELECT 1;"
+mysql -h "<MYSQL_HOST>" -u yciadmin -p --ssl-mode=REQUIRED -e "SELECT 1;"
 ```
 
 ### 10.2 `SSL connection is required`
@@ -614,8 +664,9 @@ the app requires `Authorization: Bearer <token>`. If the browser is signed in an
 gets 401, the token expired (`AUTH_TOKEN_TTL_DAYS`, default 30) or the account was
 deleted; sign in again.
 
-If sign-up itself fails with a database error, `database/schema.sql` was never loaded
-(§6.4). `SHOW TABLES FROM yci;` returning fewer than 9 tables confirms it.
+If sign-up fails with a database error, check whether the schema was loaded (§6.4).
+Compare `SHOW TABLES FROM yci;` with the ten tables in `database/schema.sql`.
+A table count alone does not verify the columns, constraints or migrations.
 
 ### 10.4 Containers restarting, `docker stats` shows a service at its limit
 
@@ -637,10 +688,12 @@ sizes are genuinely too small and the next step up is a paid size.
 
 ### 10.5 The site stops resolving after a restart
 
-A dynamically allocated public IP can change when a VM is deallocated and restarted. The
-DNS label follows the IP automatically, so `$SITE` keeps working — but the **MySQL
-firewall rule does not**. Re-run the firewall command in §5 with the new IP. To avoid
-this entirely, make the IP static (it is the same price):
+Verify both DNS resolution and the VM's current public IP. The MySQL firewall must
+allow that address. A replacement IP resource, or an older deployment with dynamic
+allocation, can invalidate the firewall rule even when the DNS label resolves. Re-run
+the firewall command in §5 if the address changes. The Standard public IP used by this
+guide should have Static allocation; verify it in Azure. For an older compatible
+resource that still uses dynamic allocation, the update is:
 
 ```bash
 az network public-ip update -g $RG -n ${VM_NAME}PublicIP --allocation-method Static
@@ -665,7 +718,7 @@ Docker build layers accumulate:
 
 ```bash
 docker system df
-docker system prune -af --volumes    # careful: also removes unused volumes
+docker image prune                  # review the prompt; removes dangling images
 ```
 
 ---

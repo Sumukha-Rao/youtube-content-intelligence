@@ -10,6 +10,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.web.reactive.function.client.WebClient;
 import org.springframework.web.util.UriComponentsBuilder;
 
+import java.net.URI;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.time.OffsetDateTime;
@@ -17,8 +18,6 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 
 /**
  * Encapsulates all access to the YouTube Data API v3. Raw API responses are never
@@ -55,9 +54,10 @@ public class YouTubeService {
 
     // ---- lightweight DTOs returned to callers ----
     public record YtChannel(String channelId, String title, String description,
-                            long subscriberCount, long videoCount, String uploadsPlaylistId) {}
+                            long subscriberCount, long videoCount, String uploadsPlaylistId, String language) {}
     public record YtVideo(String videoId, String title, String description, LocalDateTime publishedAt,
-                          String duration, long viewCount, long likeCount, long commentCount, String thumbnailUrl) {}
+                          String duration, long viewCount, long likeCount, long commentCount, String thumbnailUrl,
+                          List<String> tags, String language) {}
     public record YtComment(String commentId, String parentId, String text, LocalDateTime publishedAt, long likeCount) {}
 
     /**
@@ -102,9 +102,16 @@ public class YouTubeService {
 
         private JsonNode get(String path, Map<String, String> params) {
             requireKey();
-            UriComponentsBuilder b = UriComponentsBuilder.fromPath(path).queryParam("key", apiKey);
-            params.forEach(b::queryParam);
-            String uri = b.build().toUriString();
+            // Expand values after encoding: literal +, &, Unicode, and percent
+            // characters must remain part of the parameter, never query syntax.
+            UriComponentsBuilder b = UriComponentsBuilder.fromUriString(
+                    props.getYoutube().getApiBaseUrl().replaceAll("/+$", ""))
+                    .path(path).queryParam("key", "{apiKey}");
+            Map<String, Object> values = new HashMap<>(); values.put("apiKey", apiKey);
+            params.forEach((name, value) -> {
+                b.queryParam(name, "{" + name + "}"); values.put(name, value);
+            });
+            URI uri = b.encode().buildAndExpand(values).toUri();
             try {
                 String raw = client.get().uri(uri).retrieve()
                         .bodyToMono(String.class).timeout(Duration.ofSeconds(30)).block();
@@ -125,7 +132,7 @@ public class YouTubeService {
             } catch (YouTubeApiException e) {
                 throw e;
             } catch (Exception e) {
-                throw new YouTubeApiException("YouTube API request failed: " + e.getMessage(), e);
+                throw new YouTubeApiException("YouTube API request failed. Please try again later.", e);
             }
         }
 
@@ -144,26 +151,54 @@ public class YouTubeService {
         // ---- channel URL resolution ----
 
         public String resolveChannelId(String urlOrId) {
-            if (urlOrId == null || urlOrId.isBlank())
-                throw new YouTubeApiException("Empty channel URL.");
-            String s = urlOrId.trim();
-            if (s.matches("UC[\\w-]{20,}")) return s;
-
-            Matcher m;
-            if ((m = CHANNEL_ID.matcher(s)).find()) return m.group(1);
-            if ((m = HANDLE.matcher(s)).find()) return resolveByHandle(m.group(1));
-            if (s.startsWith("@")) return resolveByHandle(s.substring(1));
-            if ((m = USER.matcher(s)).find()) return resolveBySearch(m.group(1));
-            if ((m = CUSTOM.matcher(s)).find()) return resolveBySearch(m.group(1));
-            // Fall back to treating the whole string as a search term.
-            return resolveBySearch(s);
+            if (urlOrId == null || urlOrId.isBlank()) throw new YouTubeApiException("Empty channel URL.");
+            String value = urlOrId.trim();
+            if (value.matches("UC[\\w-]{22}")) return value;
+            if (value.startsWith("@")) return resolveByHandle(value.substring(1));
+            if (value.matches("(?i)(www\\.|m\\.)?youtube\\.com/.*")) value = "https://" + value;
+            if (value.contains("://")) {
+                URI uri;
+                try { uri = URI.create(value); }
+                catch (IllegalArgumentException e) { throw new YouTubeApiException("Invalid YouTube channel URL."); }
+                String host = uri.getHost();
+                if (host == null || !java.util.Set.of("youtube.com", "www.youtube.com", "m.youtube.com")
+                        .contains(host.toLowerCase(java.util.Locale.ROOT))
+                        || !("http".equalsIgnoreCase(uri.getScheme()) || "https".equalsIgnoreCase(uri.getScheme()))) {
+                    throw new YouTubeApiException("Enter a YouTube channel URL, @handle or channel ID.");
+                }
+                String[] parts = uri.getPath().split("/");
+                if (parts.length >= 2 && parts[1].startsWith("@")) return resolveByHandle(parts[1].substring(1));
+                if (parts.length >= 3 && parts[1].equals("channel") && parts[2].matches("UC[\\w-]{22}")) return parts[2];
+                if (parts.length >= 3 && parts[1].equals("user")) {
+                    JsonNode items = get("/channels", Map.of("part", "id", "forUsername", parts[2])).path("items");
+                    if (items.isArray() && !items.isEmpty()) return items.get(0).path("id").asText();
+                    throw new YouTubeApiException("Could not resolve a channel from: " + urlOrId);
+                }
+                if (parts.length >= 3 && parts[1].equals("c")) return resolveBySearch(parts[2]);
+                throw new YouTubeApiException("Enter a YouTube channel URL, @handle or channel ID.");
+            }
+            if (value.matches("UC[\\w-]+")) throw new YouTubeApiException("Invalid YouTube channel ID.");
+            return resolveBySearch(value);
         }
 
         private String resolveByHandle(String handle) {
-            JsonNode r = get("/channels", Map.of("part", "id", "forHandle", "@" + handle));
-            JsonNode items = r.path("items");
-            if (items.isArray() && items.size() > 0) return items.get(0).path("id").asText();
-            return resolveBySearch(handle);
+            if (handle.isBlank() || handle.matches(".*[\\s/?#].*")) throw new YouTubeApiException("Invalid YouTube handle.");
+            JsonNode items = get("/channels", Map.of("part", "id", "forHandle", "@" + handle)).path("items");
+            if (items.isArray() && !items.isEmpty()) return items.get(0).path("id").asText();
+            // A missing explicit handle must not silently resolve to a namesake.
+            throw new YouTubeApiException("Could not resolve a channel from: @" + handle);
+        }
+
+        /** Bounded channel-name search for verifying LLM suggestions. */
+        public List<String> searchChannels(String query) {
+            JsonNode r = get("/search", Map.of("part", "snippet", "type", "channel",
+                    "maxResults", "3", "q", query));
+            List<String> ids = new ArrayList<>();
+            for (JsonNode item : r.path("items")) {
+                String id = item.path("snippet").path("channelId").asText();
+                if (id.matches("UC[\\w-]{22}")) ids.add(id);
+            }
+            return ids;
         }
 
         private String resolveBySearch(String query) {
@@ -189,7 +224,8 @@ public class YouTubeService {
                     c.path("snippet").path("description").asText(),
                     c.path("statistics").path("subscriberCount").asLong(0),
                     c.path("statistics").path("videoCount").asLong(0),
-                    c.path("contentDetails").path("relatedPlaylists").path("uploads").asText());
+                    c.path("contentDetails").path("relatedPlaylists").path("uploads").asText(),
+                    c.path("snippet").path("defaultLanguage").asText(""));
         }
 
         // ---- videos via uploads playlist ----
@@ -261,7 +297,12 @@ public class YouTubeService {
                             v.path("statistics").path("viewCount").asLong(0),
                             v.path("statistics").path("likeCount").asLong(0),
                             v.path("statistics").path("commentCount").asLong(0),
-                            v.path("snippet").path("thumbnails").path("medium").path("url").asText(null)));
+                            v.path("snippet").path("thumbnails").path("medium").path("url").asText(null),
+                            mapper.convertValue(v.path("snippet").path("tags").isArray()
+                                    ? v.path("snippet").path("tags") : mapper.createArrayNode(),
+                                    new com.fasterxml.jackson.core.type.TypeReference<List<String>>() {}),
+                            v.path("snippet").path("defaultAudioLanguage").asText(
+                                    v.path("snippet").path("defaultLanguage").asText(""))));
                 }
             }
             return out;
@@ -320,12 +361,6 @@ public class YouTubeService {
             return transcriptService.fetch(videoId);
         }
     }
-
-    // ---- channel URL patterns (shared by every session) ----
-    private static final Pattern CHANNEL_ID = Pattern.compile("/channel/(UC[\\w-]+)");
-    private static final Pattern HANDLE = Pattern.compile("/@([\\w.\\-]+)");
-    private static final Pattern USER = Pattern.compile("/user/([\\w.\\-]+)");
-    private static final Pattern CUSTOM = Pattern.compile("/c/([\\w.\\-]+)");
 
     private static LocalDateTime parseTime(String iso) {
         if (iso == null || iso.isBlank()) return null;

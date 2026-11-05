@@ -23,7 +23,8 @@ public class MlClient {
     private final WebClient client;
 
     public MlClient(WebClient.Builder builder, AppProperties props) {
-        this.client = builder.baseUrl(props.getMl().getBaseUrl()).build();
+        this.client = builder.baseUrl(props.getMl().getBaseUrl())
+                .codecs(c -> c.defaultCodecs().maxInMemorySize(1024 * 1024)).build();
     }
 
     // ---- response shapes ----
@@ -59,6 +60,22 @@ public class MlClient {
                     .block();
         } catch (Exception e) {
             throw new MlServiceException("ML demand analysis failed: " + e.getMessage(), e);
+        }
+    }
+
+    public record TranscriptVideo(String video_id, String status, String text, String language, String message) {}
+    public record TranscriptResponse(List<TranscriptVideo> videos) {}
+
+    public TranscriptResponse transcripts(List<String> videoIds, String language) {
+        try {
+            TranscriptResponse response = client.post().uri("/ml/transcripts")
+                    .bodyValue(Map.of("video_ids", videoIds, "language", language == null ? "en" : language))
+                    .retrieve().bodyToMono(TranscriptResponse.class)
+                    .timeout(Duration.ofSeconds(240)).block();
+            if (response == null || response.videos() == null) throw new IllegalStateException("Empty subtitle response");
+            return response;
+        } catch (Exception e) {
+            throw new MlServiceException("Subtitle retrieval failed temporarily. Please try again later.", e);
         }
     }
 

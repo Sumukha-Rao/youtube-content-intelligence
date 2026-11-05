@@ -1,7 +1,7 @@
 """
 FastAPI ML/NLP service for the YouTube Content Intelligence Platform.
 
-Endpoints. The Spring Boot backend calls only /health and /ml/demand; the rest
+Endpoints. The Spring Boot backend uses /health, /ml/demand and /ml/transcripts; the rest
 are standalone analysis endpoints kept for inspection and reuse (see README.md):
   GET  /health
   POST /ml/sentiment     -> TF-IDF + Logistic Regression
@@ -11,6 +11,7 @@ are standalone analysis endpoints kept for inspection and reuse (see README.md):
   POST /ml/similarity    -> semantic similarity of a query vs a corpus
   POST /ml/demand        -> ranked "what should I make next" demand topics
   POST /ml/train         -> retrain sentiment + intent from the seed CSVs
+  POST /ml/transcripts   -> existing YouTube captions and per-video retrieval status
 """
 import logging
 
@@ -90,3 +91,7 @@ def audience_demand(req: DemandRequest):
 @app.post("/ml/train")
 def train():
     return models.train_all()
+
+# Existing-caption retrieval is independent of the ML/NLP pipeline.
+from .transcripts import router as transcript_router
+app.include_router(transcript_router)

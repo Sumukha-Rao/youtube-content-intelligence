@@ -120,4 +120,14 @@ class AuthServiceTest {
         assertNull(auth.resolveUserId("not-a-real-token"));
         assertNull(auth.resolveUserId(""));
     }
+    @Test
+    void oversizedPasswordsAndAccountFieldsProduceValidationErrors() {
+        assertThrows(BadRequestException.class, () -> auth.signup(new Dto.SignupRequest("Test", uniqueEmail(), "é".repeat(40))));
+        assertThrows(BadRequestException.class, () -> auth.signup(new Dto.SignupRequest("x".repeat(151), uniqueEmail(), "supersecret123")));
+        assertThrows(BadRequestException.class, () -> auth.signup(new Dto.SignupRequest("Test", "x".repeat(250) + "@example.com", "supersecret123")));
+        String email = uniqueEmail();
+        auth.signup(new Dto.SignupRequest("Test", email, "supersecret123"));
+        assertThrows(BadRequestException.class, () -> auth.login(new Dto.LoginRequest(email, "é".repeat(40))));
+    }
+
 }

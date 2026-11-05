@@ -25,15 +25,17 @@ public class ChannelService {
 
     private static final Logger log = LoggerFactory.getLogger(ChannelService.class);
 
+    private final com.yci.repository.UserRepository users;
     private final ChannelRepository channelRepo;
     private final VideoRepository videoRepo;
     private final CommentRepository commentRepo;
     private final YouTubeService youTube;
     private final ApiConfigService apiConfig;
 
-    public ChannelService(ChannelRepository channelRepo, VideoRepository videoRepo,
+    public ChannelService(com.yci.repository.UserRepository users, ChannelRepository channelRepo, VideoRepository videoRepo,
                           CommentRepository commentRepo, YouTubeService youTube,
                           ApiConfigService apiConfig) {
+        this.users = users;
         this.channelRepo = channelRepo;
         this.videoRepo = videoRepo;
         this.commentRepo = commentRepo;
@@ -44,6 +46,7 @@ public class ChannelService {
     /** Resolve a channel id/handle/URL and store it as this user's channel. */
     @Transactional
     public Dto.ChannelDto setChannel(Long userId, String channelUrlOrId) {
+        users.findForUpdate(userId).orElseThrow(() -> new com.yci.exception.ResourceNotFoundException("User not found"));
         // Resolved with this user's own API key when they saved one.
         YouTubeService.Api yt = youTube.session(apiConfig.forUser(userId).youtube().apiKey());
         String channelId = yt.resolveChannelId(channelUrlOrId);
@@ -54,7 +57,7 @@ public class ChannelService {
             if (!existing.getYoutubeChannelId().equals(channelId)) {
                 log.info("Replacing channel {} with {} for user {}",
                         existing.getYoutubeChannelId(), channelId, userId);
-                channelRepo.delete(existing);
+                deleteChannel(existing);
             }
         }
 
@@ -63,8 +66,9 @@ public class ChannelService {
         channel.setUserId(userId);
         channel.setYoutubeChannelId(channelId);
         channel.setChannelName(details.title());
-        channel.setChannelUrl(channelUrlOrId.trim());
+        channel.setChannelUrl("https://www.youtube.com/channel/" + channelId);
         channel.setDescription(details.description());
+        if (details.language() != null && !details.language().isBlank()) channel.setContentLanguage(details.language());
         channel.setSubscriberCount(details.subscriberCount());
         channel.setVideoCount(details.videoCount());
         channel = channelRepo.save(channel);
@@ -85,8 +89,15 @@ public class ChannelService {
 
     @Transactional
     public void removeChannel(Long userId) {
-        channelRepo.findByUserId(userId).forEach(channelRepo::delete);
+        users.findForUpdate(userId).orElseThrow(() -> new com.yci.exception.ResourceNotFoundException("User not found"));
+        channelRepo.findByUserId(userId).forEach(this::deleteChannel);
         log.info("Removed own channel for user {}", userId);
+    }
+
+    private void deleteChannel(Channel channel) {
+        commentRepo.deleteByChannelId(channel.getId());
+        videoRepo.deleteByChannelId(channel.getId());
+        channelRepo.delete(channel);
     }
 
     public Dto.ChannelDto toDto(Channel c) {

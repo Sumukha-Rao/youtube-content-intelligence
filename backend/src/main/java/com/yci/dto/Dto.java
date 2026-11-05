@@ -75,7 +75,8 @@ public final class Dto {
 
     public record IdeaRunDto(Long id, String status, int progress, String message,
                              String result, String prompt, String model, boolean webSearchUsed,
-                             LocalDateTime createdAt, LocalDateTime completedAt, String errorMessage) {}
+                             LocalDateTime createdAt, LocalDateTime completedAt, String errorMessage,
+                             com.fasterxml.jackson.databind.JsonNode recommendations) {}
 
     // ---- home ----
     public record HomeDto(UserDto user, ChannelDto channel, List<CompetitorChannelDto> competitors,

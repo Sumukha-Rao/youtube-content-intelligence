@@ -41,6 +41,7 @@ public class IdeaService {
     /** Demand topics requested from the ML service per channel. */
     private static final int MAX_DEMAND_TOPICS = 12;
 
+    private final com.yci.repository.UserRepository users;
     private final IdeaRunRepository runRepo;
     private final ChannelService channelService;
     private final CompetitorService competitorService;
@@ -56,13 +57,14 @@ public class IdeaService {
     private final LlmClient llm;
     private final ApiConfigService apiConfigService;
 
-    public IdeaService(IdeaRunRepository runRepo, ChannelService channelService,
+    public IdeaService(com.yci.repository.UserRepository users, IdeaRunRepository runRepo, ChannelService channelService,
                        CompetitorService competitorService, UserSettingsService settingsService,
                        IngestService ingestService, VideoRepository videoRepo,
                        CommentRepository commentRepo, CompetitorVideoRepository competitorVideoRepo,
                        CompetitorCommentRepository competitorCommentRepo, MlClient ml,
                        WebSearchService webSearch, PromptBuilder promptBuilder, LlmClient llm,
                        ApiConfigService apiConfigService) {
+        this.users = users;
         this.runRepo = runRepo;
         this.channelService = channelService;
         this.competitorService = competitorService;
@@ -82,6 +84,7 @@ public class IdeaService {
     /** Validate up front, then queue a run. */
     @Transactional
     public IdeaRun createRun(Long userId) {
+        users.findForUpdate(userId).orElseThrow(() -> new com.yci.exception.ResourceNotFoundException("User not found"));
         boolean hasChannel = channelService.findChannel(userId).isPresent();
         boolean hasCompetitors = !competitorService.entities(userId).isEmpty();
         if (!hasChannel && !hasCompetitors) {
@@ -140,10 +143,10 @@ public class IdeaService {
             if (channelOpt.isPresent()) {
                 Channel channel = channelOpt.get();
                 update(run, 8, "Fetching videos and comments from your channel…");
-                ingestService.ingestOwnChannel(channel, settings, youtubeKey);
+                var ingested = ingestService.ingestOwnChannel(channel, settings, youtubeKey);
 
                 update(run, 25, "Working out what your audience is asking for…");
-                own = buildOwnChannel(channel, settings);
+                own = buildOwnChannel(channel, settings, ingested.videoIds(), ingested.commentIds());
             }
 
             // ---- competitors ----
@@ -155,11 +158,11 @@ public class IdeaService {
                     CompetitorChannel cc = competitorEntities.get(i);
                     int base = 30 + (span * i) / competitorEntities.size();
                     update(run, base, "Fetching " + cc.getChannelName() + "…");
-                    ingestService.ingestCompetitor(cc, settings, youtubeKey);
+                    var ingested = ingestService.ingestCompetitor(cc, settings, youtubeKey);
 
                     update(run, base + span / (2 * competitorEntities.size()),
                             "Analysing " + cc.getChannelName() + "'s audience…");
-                    competitors.add(buildCompetitor(cc, settings));
+                    competitors.add(buildCompetitor(cc, settings, ingested.videoIds(), ingested.commentIds()));
                 }
             }
 
@@ -183,7 +186,9 @@ public class IdeaService {
             update(run, 85, "Asking " + api.llm().model() + " for ideas (this can take a few minutes)…");
             String answer = llm.complete(api.llm(), prompt.system(), prompt.user());
 
-            run.setResult(answer);
+            var data = RecommendationService.validateIdeas(answer, prompt.suppliedVideos());
+            run.setRecommendationData(data.toString());
+            run.setResult(RecommendationService.markdown(data));
             run.setStatus(RunStatus.COMPLETED);
             run.setProgress(100);
             run.setMessage("Done");
@@ -202,15 +207,18 @@ public class IdeaService {
         }
     }
 
-    private PromptBuilder.OwnChannel buildOwnChannel(Channel channel, UserSettings settings) {
-        List<PromptBuilder.VideoInfo> videos = videoRepo.findByChannelId(channel.getId()).stream()
+    private PromptBuilder.OwnChannel buildOwnChannel(Channel channel, UserSettings settings, List<Long> selectedIds, List<Long> selectedCommentIds) {
+        var selected = new java.util.HashSet<>(selectedIds);
+        List<PromptBuilder.VideoInfo> videos = videoRepo.findAllById(selectedIds).stream()
+                .filter(v -> selected.contains(v.getId()))
                 .sorted(Comparator.comparing(Video::getPublishedAt,
                         Comparator.nullsLast(Comparator.reverseOrder())))
                 .map(v -> new PromptBuilder.VideoInfo(v.getTitle(), v.getViewCount(), v.getLikeCount(),
                         v.getCommentCount(), v.getPublishedAt()))
                 .toList();
 
-        List<Comment> comments = commentRepo.findByChannelId(channel.getId()).stream()
+        List<Comment> comments = commentRepo.findAllById(selectedCommentIds).stream()
+                .filter(c -> selected.contains(c.getVideoId()))
                 .sorted(Comparator.comparing(Comment::getLikeCount,
                         Comparator.nullsLast(Comparator.reverseOrder())))
                 .limit(settings.getOwnCommentLimit())
@@ -226,15 +234,19 @@ public class IdeaService {
                 channel.getSubscriberCount(), videos, demand);
     }
 
-    private PromptBuilder.Competitor buildCompetitor(CompetitorChannel cc, UserSettings settings) {
-        List<PromptBuilder.VideoInfo> videos = competitorVideoRepo.findByCompetitorChannelId(cc.getId()).stream()
+    private PromptBuilder.Competitor buildCompetitor(CompetitorChannel cc, UserSettings settings, List<Long> selectedIds, List<Long> selectedCommentIds) {
+        var selected = new java.util.HashSet<>(selectedIds);
+        List<PromptBuilder.VideoInfo> videos = competitorVideoRepo.findAllById(selectedIds).stream()
+                .filter(v -> selected.contains(v.getId()))
                 .sorted(Comparator.comparing(CompetitorVideo::getPublishedAt,
                         Comparator.nullsLast(Comparator.reverseOrder())))
                 .map(v -> new PromptBuilder.VideoInfo(v.getTitle(), v.getViewCount(), v.getLikeCount(),
-                        v.getCommentCount(), v.getPublishedAt()))
+                        v.getCommentCount(), v.getPublishedAt(), v.getYoutubeVideoId(), v.getDescription(),
+                        "https://www.youtube.com/watch?v=" + v.getYoutubeVideoId(), cc.getChannelName()))
                 .toList();
 
-        List<CompetitorComment> comments = competitorCommentRepo.findByCompetitorChannelId(cc.getId()).stream()
+        List<CompetitorComment> comments = competitorCommentRepo.findAllById(selectedCommentIds).stream()
+                .filter(c -> selected.contains(c.getCompetitorVideoId()))
                 .sorted(Comparator.comparing(CompetitorComment::getLikeCount,
                         Comparator.nullsLast(Comparator.reverseOrder())))
                 .limit(settings.getCompetitorCommentLimit())
@@ -284,6 +296,7 @@ public class IdeaService {
     public Dto.IdeaRunDto toDto(IdeaRun r) {
         return new Dto.IdeaRunDto(r.getId(), r.getStatus().name(), r.getProgress(), r.getMessage(),
                 r.getResult(), r.getPrompt(), r.getModel(), r.isWebSearchUsed(),
-                r.getCreatedAt(), r.getCompletedAt(), r.getErrorMessage());
+                r.getCreatedAt(), r.getCompletedAt(), r.getErrorMessage(),
+                r.getRecommendationData() == null ? null : StructuredOutput.object(r.getRecommendationData()));
     }
 }
