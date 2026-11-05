@@ -157,6 +157,11 @@ variable "mysql_database_name" {
   description = "Application database."
   type        = string
   default     = "yci"
+
+  validation {
+    condition     = can(regex("^[A-Za-z][A-Za-z0-9_]{0,63}$", var.mysql_database_name))
+    error_message = "mysql_database_name must be 1-64 letters, digits or underscores, starting with a letter."
+  }
 }
 
 variable "mysql_backup_retention_days" {
@@ -193,7 +198,8 @@ variable "mysql_allowed_client_cidrs" {
 variable "repo_url" {
   description = <<-EOT
     Git URL cloned onto the VM and started automatically. Must be reachable without
-    interactive credentials (a public HTTPS URL, or one with a token in it).
+    interactive credentials (for example, a public HTTPS URL). Never embed tokens
+    in this URL; they would enter state, cloud-init logs and Git configuration.
 
     Left empty, Terraform still provisions and prepares the box — Docker, swap,
     mysql-client, the .env file — and leaves the checkout and `docker compose up`
@@ -206,7 +212,7 @@ variable "repo_url" {
 variable "repo_branch" {
   description = "Branch to check out when repo_url is set."
   type        = string
-  default     = "main"
+  default     = "master"
 }
 
 variable "load_schema" {

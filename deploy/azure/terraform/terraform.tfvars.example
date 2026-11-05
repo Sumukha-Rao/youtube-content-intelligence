@@ -35,7 +35,7 @@ ssh_public_key_path = "~/.ssh/id_ed25519.pub"
 # be reachable without an interactive prompt. Leave it empty to have Terraform
 # only prepare the box (Docker, swap, .env) and rsync the code yourself.
 repo_url    = "https://github.com/<you>/youtube-content-intelligence.git"
-repo_branch = "main"
+repo_branch = "master"
 
 # Server-wide defaults. Each account can override its own YouTube key, model and
 # search provider in the app under Settings → API access, so a shared install

@@ -266,7 +266,9 @@ what §6–§8 of `AZURE_DEPLOYMENT.md` asks you to do by hand.
 3. **`/opt/yci/.env`** — written by Terraform, mode `0600`, then copied into the checkout.
 4. **The code** — `git clone --depth 1 --branch <repo_branch> <repo_url>` into
    `/opt/yci/app`.
-5. **The schema** — `database/schema.sql`, then anything in `database/migrations/`.
+5. **The schema** — load `database/schema.sql` only into an empty configured database.
+   Fresh schema already includes the migrations; populated databases are upgraded
+   explicitly as described in §5.3.
 6. **`docker compose --env-file .env -f deploy/azure/docker-compose.azure.yml up -d --build`**.
 
 Progress goes to `/var/log/yci-bootstrap.log`; cloud-init's own output is in
