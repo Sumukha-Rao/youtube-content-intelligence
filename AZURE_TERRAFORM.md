@@ -23,7 +23,7 @@ The Terraform lives in [`deploy/azure/terraform/`](deploy/azure/terraform/).
    │ azurerm_network_security_group   yci-nsg      │
    │ azurerm_public_ip (Standard, Static, DNS lbl) │
    │ azurerm_linux_virtual_machine    yci-vm       │
-   │   Ubuntu 24.04 · B2ats_v2 · 64 GB P6 disk     │
+   │   Ubuntu 24.04 · B2s · 64 GB P6 disk         │
    │   cloud-init ▸ swap, Docker, .env, compose up │
    │   ┌─────────────────────────────────────────┐ │
    │   │ caddy  ·  backend  ·  ml-service  ·  fe  │ │
@@ -180,7 +180,8 @@ to re-enter theirs.
 ## 4. Configuring it
 
 Everything is in `variables.tf`; `terraform.tfvars.example` lists the ones you are
-likely to touch. The defaults are chosen to stay inside the free tier, so a minimal
+likely to touch. The defaults retain the full local ML stack on a 4 GiB VM;
+check compute pricing before applying. A minimal
 `terraform.tfvars` is two lines:
 
 ```hcl
@@ -193,7 +194,7 @@ repo_url        = "https://github.com/<you>/youtube-content-intelligence.git"
 | Variable | Default | |
 |---|---|---|
 | `location` | `centralindia` | `centralindia` / `southindia` are closest from India. |
-| `vm_size` | `Standard_B2ats_v2` | 2 vCPU, 1 GiB. `Standard_B1s` if the size is not offered in your region — check with `az vm list-skus --location "<region>" --size Standard_B2ats --all -o table`. |
+| `vm_size` | `Standard_B2s` | 2 vCPU, 4 GiB; use an available x86-64 size with at least 4 GiB. Check regional capacity and pricing. |
 | `dns_label` | random | Becomes `<label>.<region>.cloudapp.azure.com`, which is the HTTPS name and the certificate subject. Globally unique per region. |
 | `repo_url` | `""` | Empty = provision and prepare the box, but do not clone or start anything. |
 | `compose_profiles` | `[]` | `["searxng"]` adds the private metasearch container — see §4.3. |
@@ -220,12 +221,10 @@ in the app.
 ### 4.3 Web search
 
 `web_search_provider` defaults to `duckduckgo` here rather than the `searxng` of the
-local compose file, because the SearXNG container is not running: it needs roughly
-200 MiB, and the four services already account for the VM's whole gigabyte. To run it
-anyway on a larger `vm_size`:
+local compose file, because SearXNG is an optional profile. Budget roughly 200 MiB
+extra when enabling it:
 
 ```hcl
-vm_size             = "Standard_B2s"     # 4 GiB — this is a paid size
 compose_profiles    = ["searxng"]
 web_search_provider = "searxng"
 web_search_base_url = "http://searxng:8080"
@@ -258,8 +257,7 @@ what §6–§8 of `AZURE_DEPLOYMENT.md` asks you to do by hand.
 ### 5.1 The sequence
 
 1. **Swap** — 4 GB (`swap_size_gb`), `vm.swappiness=10`, persisted in `/etc/fstab`.
-   Not optional: 1 GiB of RAM with no swap gets the Maven build OOM-killed part-way
-   through, which looks like a mysterious `docker compose` failure.
+   Provides additional headroom while building the backend and full ML image.
 2. **Docker** — engine and compose plugin from Docker's own apt repository; the admin
    user is added to the `docker` group; the service is enabled so the stack survives
    a reboot.
@@ -327,19 +325,17 @@ once for missing discovery, video-snapshot and recommendation JSON columns. Do n
 reapply after Hibernate or an earlier migration has added them. No new tables or
 historical-run backfill are needed; generate a new run for related-video associations.
 
-### 5.4 Fitting in 1 GiB
+### 5.4 The same ML stack as local
 
-`docker-compose.azure.yml` builds the ML service from `Dockerfile.lite` — TF-IDF backend,
-no `torch` — and caps every service. The details, and what the lite build gives up, are
-in `AZURE_DEPLOYMENT.md` §7. The short version: explicit "make a video on X" requests
-are found by regex and are unaffected; *grouping* of paraphrased requests degrades from
-semantic embeddings to shared vocabulary. Confirm which build is running:
+`docker-compose.azure.yml` builds `ml-service/Dockerfile` with `requirements.txt`,
+just like local Compose. The ML code, models, semantic dependencies and existing
+fallback behavior are unchanged. The VM default is `Standard_B2s` (4 GiB RAM), and
+ML has a 2560 MiB container limit. Increase capacity for larger workloads.
 
-```bash
-docker exec yci-ml-service python -c "import urllib.request,json; \
-print(json.load(urllib.request.urlopen('http://localhost:8000/health')))"
-# → {'status': 'UP', 'embedding_backend': 'tfidf-fallback'}
-```
+The first start needs access to download the same semantic model used locally.
+Once loaded, ML health should report `embedding_backend: sentence-transformers`.
+A fallback response calls for checking model-loading logs and download access.
+See `AZURE_DEPLOYMENT.md` §7 for resource limits and verification.
 
 ---
 
@@ -595,14 +591,14 @@ the Caddy certificate but **not** the database, which is a separate resource:
 terraform apply -replace=azurerm_linux_virtual_machine.vm
 ```
 
-### 10.7 `Standard_B2ats_v2 is not available in this region`
+### 10.7 `Standard_B2s is not available in this region`
 
 ```bash
-az vm list-skus --location "<region>" --size Standard_B2ats --all -o table
+az vm list-skus --location "<region>" --size Standard_B2s --all -o table
 ```
 
-Set `vm_size = "Standard_B1s"`. Same 1 GiB of RAM and the same free allowance; only the
-build takes longer.
+Select another available x86-64 VM size with at least 4 GiB RAM. Retain the full
+ML image and check pricing and quotas for the selected size.
 
 ### 10.8 `dns_label` or `mysql_server_name` already taken
 
@@ -629,9 +625,9 @@ free tier, and building on the box avoids it entirely.
 
 If you outgrow that, the pieces to change are known:
 
-- **Full semantic quality** — the ML service needs ~1.5 GB on its own; `Standard_B2s`
-  (2 vCPU / 4 GiB) runs the full image alongside everything else, at real cost. Change
-  `vm_size` and build from `Dockerfile` instead of `Dockerfile.lite`.
+- **More capacity** — the full local ML image is already the default. Increase
+  `vm_size` and the ML container limit for larger workloads without removing models
+  or semantic dependencies.
 - **Immutable deploys** — add `azurerm_container_registry`, push images from CI, and
   reduce cloud-init to `docker compose pull && up -d`.
 - **No server to manage** — App Service (Linux, B1+) for the backend container with

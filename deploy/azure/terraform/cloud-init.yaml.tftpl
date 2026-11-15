@@ -24,7 +24,7 @@ packages:
   - mysql-client
 
 write_files:
-  # 1 GiB of RAM with no swap gets the Maven build OOM-killed part-way through.
+  # Swap provides headroom while building and running the full ML stack.
   - path: /etc/sysctl.d/99-yci-swap.conf
     permissions: "0644"
     content: |

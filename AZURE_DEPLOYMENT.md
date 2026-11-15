@@ -1,6 +1,8 @@
-# Deploying to Azure on a Free Account
+# Deploying to Azure with the local ML stack
 
-Step-by-step deployment of this project to a small Azure VM and managed database.
+Step-by-step deployment with the same full ML image as local and a managed database.
+Use at least 4 GiB RAM; the example VM is Standard_B2s. Check its pricing separately
+from any free-account allowances.
 Check subscription eligibility, regional capacity and current pricing before provisioning;
 this guide does not guarantee a free deployment. Companion to [`README.md`](README.md) and
 [`PROJECT_GUIDE.md`](PROJECT_GUIDE.md).
@@ -25,14 +27,14 @@ public-IP and firewall resources.
                        │  HTTPS :443
                        ▼
         ┌──────────────────────────────────┐
-        │  Azure VM  (B2ats_v2, 1 GiB)     │
+        │  Azure VM  (B2s, 4 GiB)         │
         │  ┌────────────────────────────┐  │
         │  │ caddy    TLS + routing     │  │
         │  │   /api/* → backend :8080   │  │
         │  │   /*     → frontend :80    │  │
         │  ├────────────────────────────┤  │
         │  │ backend    Spring Boot     │  │
-        │  │ ml-service FastAPI (lite)  │  │
+        │  │ ml-service FastAPI (full)  │  │
         │  │ frontend   nginx (static)  │  │
         │  └────────────────────────────┘  │
         └───────────────┬──────────────────┘
@@ -58,7 +60,7 @@ below target x86-64; an Arm SKU also requires compatible images and dependencies
 | **AKS** | The control plane is free; the node pool is not, and the smallest usable node is outside the free VM sizes. |
 | **Container Registry** | Adds another service and possible charges. This deployment builds images on the VM instead. |
 | **Static Web Apps** | Genuinely free and a fine home for `frontend/`, but it adds a second origin, CORS, and a service you do not need — Caddy already serves the static files. |
-| **MySQL in a container on the VM** | It would eat ~440 MB of the VM's 1 GiB. The managed server takes that load off the box; verify free-offer eligibility separately. |
+| **MySQL in a container on the VM** | It adds another workload beside the full ML stack. The managed server takes that load off the VM; verify pricing separately. |
 
 So: **one VM, one managed database.** Everything else would add cost, cold starts, or
 moving parts without buying anything.
@@ -161,22 +163,20 @@ Connector/J with `sslMode=REQUIRED` handles it with no truststore setup.
 
 ## 5. Step 3 — The virtual machine
 
-`B2ats_v2` gives 2 vCPUs at the same 1 GiB of RAM as `B1s` and is inside the same free
-allowance, so builds on the box finish roughly twice as fast. Check availability first:
+Use `Standard_B2s` (2 vCPUs, 4 GiB RAM) or another available x86-64 size
+with at least 4 GiB RAM. The full local ML stack is retained; a 1 GiB VM is not
+the deployment target. Check availability and pricing:
 
 ```bash
-az vm list-skus --location $LOC --size Standard_B2ats --all --output table
+az vm list-skus --location $LOC --size Standard_B2s --all --output table
 ```
-
-If it is not offered in your region, substitute `Standard_B1s` below (everything else is
-identical; only the build takes longer).
 
 ```bash
 az vm create \
   --resource-group $RG \
   --name $VM_NAME \
   --image Ubuntu2404 \
-  --size Standard_B2ats_v2 \
+  --size Standard_B2s \
   --admin-username azureuser \
   --generate-ssh-keys \
   --public-ip-sku Standard \
@@ -233,7 +233,7 @@ ssh azureuser@$SITE
 
 ### 6.1 Swap
 
-1 GiB with no swap will OOM during the Maven build. Add 4 GB permanently:
+Add 4 GB of swap for extra build and runtime headroom:
 
 ```bash
 sudo fallocate -l 4G /swapfile
@@ -407,76 +407,37 @@ can still allow scheduled generation. The hourly check uses rolling daily/weekly
 intervals and does not guarantee inbox delivery. To apply changed SMTP values, recreate
 the backend with `--env-file .env -f deploy/azure/docker-compose.azure.yml`; a simple
 container restart does not reload environment values. Optional `SMTP_AUTH` and
-`SMTP_STARTTLS` overrides require explicit Compose forwarding.
+`SMTP_STARTTLS` overrides are forwarded by the deployment Compose file.
 
 ---
 
-## 7. Step 5 — Fitting in 1 GiB
+## 7. Step 5 — The same ML stack as local
 
-Historical local runtime measurements for the full stack were: backend 435 MB, **ml-service 1.26 GB**,
-MySQL 439 MB, nginx 17 MB. That exceeds 1 GiB. The repository provides two
-configurations to reduce the footprint; verify current usage on the target VM:
+Both Compose files build `ml-service/Dockerfile` with `requirements.txt`, including
+sentence-transformers, BERTopic, HDBSCAN and CPU PyTorch. The ML implementation,
+models, dependency pins and existing fallback behavior are unchanged.
 
-### `ml-service/Dockerfile.lite` + `requirements-lite.txt`
-
-The semantic stack (`sentence-transformers`, `bertopic`, `hdbscan`, and the `torch` they
-pull in) is imported lazily by `app/embeddings.py` and `app/topics.py`, which fall back to
-a TF-IDF backend when it is absent. Dropping it from the requirements is therefore a
-supported configuration, not a hack:
-
-| | Full image | Lite image |
-|---|---|---|
-| Image size | 10.4 GB | **711 MB** |
-| Memory in use | 1.26 GB | **108 MB** |
-| `/health` reports | `sentence-transformers` | `tfidf-fallback` |
-| Request-pattern matching | identical (pure regex) | identical |
-| Clustering of paraphrased requests | semantic embeddings | TF-IDF vectors |
-
-What survives intact is the part that matters most: explicit asks ("make a video on X")
-are found by regex in `demand.py`, which needs no model at all, and labels are filtered by
-the same stopword list either way.
-
-What degrades is the *grouping*. TF-IDF vectors cluster by shared vocabulary rather than
-meaning, so "kafka consumer groups" and "consumer group rebalancing" may stay separate
-topics instead of merging into one. Acceptable; if you want full semantic quality you need
-a VM with more RAM than the free tier offers.
-
-### `deploy/azure/docker-compose.azure.yml`
-
-Drops the MySQL container, builds the ML service from `Dockerfile.lite`, adds Caddy, and
-caps every service:
+Use at least 4 GiB RAM for the VM. The Azure service limits are:
 
 | Service | Limit | Notes |
 |---|---|---|
-| `backend` | 640 MB | `JAVA_TOOL_OPTIONS=-Xmx320m -XX:MaxMetaspaceSize=128m -XX:+UseSerialGC` |
-| `ml-service` | 320 MB | measured ~110 MB in use |
-| `frontend` | 64 MB | nginx |
-| `caddy` | 96 MB | TLS termination |
-| `searxng` | 256 MB | **opt-in**, see below |
+| `ml-service` | 2560 MiB | Full local semantic stack |
+| `backend` | 640 MiB | JVM heap capped at 320 MiB |
+| `frontend` | 64 MiB | nginx |
+| `caddy` | 96 MiB | TLS termination |
+| `searxng` | 256 MiB | Optional profile |
 
-Only Caddy publishes ports; the rest talk over the internal Docker network and are not
-reachable from the internet.
+Only Caddy publishes ports. Check actual peak memory during ingestion and topic
+analysis; increase VM capacity for larger workloads instead of removing ML packages.
+The first semantic-model load needs access to download its weights, just as locally.
 
-The size/memory numbers above are earlier measurements, not guarantees for a new build.
-Watch current memory during ingestion and generation, including the new on-demand
-subtitle requests. Both Python profiles include `youtube-transcript-api==1.2.4`; the
-caption feature does not require adding a model or changing the existing NLP profile.
-
-### Web search on a 1 GiB VM
-
-The local `docker-compose.yml` runs a private SearXNG for web search. Here it is behind a
-compose profile, because the four services above already account for the whole gigabyte:
+To enable the optional private search service:
 
 ```bash
-# only worth doing on a VM with more RAM than the free tier
 docker compose --env-file .env -f deploy/azure/docker-compose.azure.yml \
   --profile searxng up -d
-# then in .env:  WEB_SEARCH_PROVIDER=searxng  WEB_SEARCH_BASE_URL=http://searxng:8080
+# .env: WEB_SEARCH_PROVIDER=searxng WEB_SEARCH_BASE_URL=http://searxng:8080
 ```
-
-On the free tier the sensible options are `duckduckgo` (keyless, throttles), pointing
-`WEB_SEARCH_BASE_URL` at a SearXNG instance you run elsewhere, or letting each user
-configure their own under **Settings → API access**.
 
 ---
 
@@ -670,19 +631,19 @@ A table count alone does not verify the columns, constraints or migrations.
 
 ### 10.4 Containers restarting, `docker stats` shows a service at its limit
 
-Out of memory. In order of preference: confirm swap is active (`free -h` — §6.1); confirm
-the ML service is the **lite** build — it is not published to the internet, so check it
-from the VM:
+Check swap (`free -h`), container limits (`docker stats`) and the VM size.
+Use at least 4 GiB RAM and increase capacity when actual peak usage needs it.
+Do not replace the full ML image with the lite image to reduce memory use.
 
 ```bash
 docker exec yci-ml-service python -c "import urllib.request,json; \
 print(json.load(urllib.request.urlopen('http://localhost:8000/health')))"
-# → {'status': 'UP', 'embedding_backend': 'tfidf-fallback'}
+# Expected when the semantic model loads: embedding_backend = sentence-transformers
 ```
 
-`tfidf-fallback` means the lite build is running; `sentence-transformers` means the full
-image got built and will not fit. Then lower `-Xmx` toward 256m in the compose file. If the backend still cannot hold, the free VM
-sizes are genuinely too small and the next step up is a paid size.
+If health reports `tfidf-fallback`, inspect model-loading logs, dependencies and
+outbound access for model downloads. That fallback is the existing local behavior,
+not a separate Azure ML configuration.
 
 `dmesg | grep -i oom` names whatever the kernel killed.
 
@@ -741,8 +702,8 @@ az resource list --output table
 
 ## 12. If you outgrow the free tier
 
-- **Full semantic quality** — the ML service needs ~1.5 GB on its own. A `B2s`
-  (2 vCPU / 4 GiB) runs the full image alongside everything else, at real cost.
+- **More capacity** — the full semantic stack is already enabled. Increase VM
+  memory and the ML container limit when peak workload usage requires it.
 - **Separating the services** — once you are paying anyway, Container Apps with
   scale-to-zero on the ML service is cheaper than a second always-on VM, since topic
   discovery is bursty.

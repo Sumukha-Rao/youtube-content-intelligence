@@ -136,7 +136,8 @@ backend image runs a full Maven build. Later starts take seconds.
 
 If that is too much for the machine, `ml-service/Dockerfile.lite` builds the same service
 without the semantic stack — 711 MB, TF-IDF instead of embeddings, every endpoint still
-working. It is what the server deployment uses; see `ml-service/README.md` §6.
+working. This is an optional alternative, not the Azure deployment default. Local
+and Azure Compose both use the full `Dockerfile` and `requirements.txt`.
 
 ```bash
 curl http://localhost:8081/api/health      # through nginx — the path the browser uses

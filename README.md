@@ -157,9 +157,9 @@ neither can still be created, and the app will ask for its own keys under
 
 `deploy/azure/docker-compose.azure.yml` is the deployment shape: no MySQL container (a
 managed database instead), Caddy terminating TLS in front of the same nginx, and the ML
-service built from `Dockerfile.lite` — TF-IDF only, no `torch`, 711 MB instead of 10.4 GB,
-which is what makes the whole stack fit on a 1 GiB host. Explicit asks are found by regex
-either way; only the clustering of paraphrases degrades. Walkthroughs:
+service built from the same `ml-service/Dockerfile` and `requirements.txt` as local,
+including the semantic ML dependencies. The deployment targets at least 4 GiB RAM;
+Terraform defaults to `Standard_B2s`. Walkthroughs:
 [`AZURE_DEPLOYMENT.md`](AZURE_DEPLOYMENT.md) by hand,
 [`AZURE_TERRAFORM.md`](AZURE_TERRAFORM.md) as code.
 

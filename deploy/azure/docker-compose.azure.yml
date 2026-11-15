@@ -1,17 +1,17 @@
-# Compose file for a 1 GiB Azure free-tier VM.
+# Azure deployment with the same full ML image used by local Compose.
 #
 # Differences from the root docker-compose.yml:
 #   * no mysql container      — the database is Azure Database for MySQL Flexible Server
-#   * ml-service uses Dockerfile.lite (TF-IDF backend, ~700 MB image, ~110 MB RSS)
+#   * ml-service uses the same Dockerfile and requirements.txt as local
 #   * a Caddy reverse proxy terminates TLS and puts frontend + API on one origin
 #   * only Caddy publishes ports; everything else is reachable on the internal network
-#   * explicit memory limits and a capped JVM heap so the services coexist in 1 GiB
-#   * SearXNG is opt-in — it does not fit in 1 GiB alongside everything else
+#   * explicit memory limits and a capped JVM heap; use at least a 4 GiB VM
+#   * SearXNG remains opt-in
 #
 # Usage (from the repository root on the VM):
 #   docker compose --env-file .env -f deploy/azure/docker-compose.azure.yml up -d --build
 #
-# With a bigger VM, add the private search instance too:
+# To add the private search instance too:
 #   docker compose --env-file .env -f deploy/azure/docker-compose.azure.yml \
 #     --profile searxng up -d --build
 # and set WEB_SEARCH_PROVIDER=searxng, WEB_SEARCH_BASE_URL=http://searxng:8080.
@@ -20,14 +20,14 @@ services:
   ml-service:
     build:
       context: ../../ml-service
-      dockerfile: Dockerfile.lite
+      dockerfile: Dockerfile
     container_name: yci-ml-service
     restart: unless-stopped
     environment:
       MODEL_DIR: /app/models
     volumes:
       - ml_models:/app/models
-    mem_limit: 320m
+    mem_limit: 2560m
     expose:
       - "8000"
 
@@ -70,7 +70,7 @@ services:
       NOTIFY_FROM: ${NOTIFY_FROM:-yci@localhost}
       NOTIFY_CRON: ${NOTIFY_CRON:-0 0 * * * *}
       APP_URL: ${APP_URL:-https://${SITE_ADDRESS}}
-      # Keep the JVM inside its share of 1 GiB. SerialGC has the smallest footprint.
+      # Leave room for the full semantic ML service and the operating system.
       JAVA_TOOL_OPTIONS: "-Xmx320m -XX:MaxMetaspaceSize=128m -XX:+UseSerialGC -Xss512k"
     mem_limit: 640m
     expose:
@@ -89,8 +89,7 @@ services:
     expose:
       - "80"
 
-  # Opt-in: `--profile searxng`. Budget roughly 200 MiB, which a 1 GiB VM running
-  # everything else does not have.
+  # Opt-in: `--profile searxng`. Budget roughly 200 MiB in addition to the app.
   searxng:
     image: searxng/searxng:latest
     container_name: yci-searxng

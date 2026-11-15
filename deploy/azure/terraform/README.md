@@ -3,6 +3,11 @@
 Provisions the VM and managed MySQL server this project runs on, and hands the VM
 a cloud-init file that installs Docker and starts the stack.
 
+Azure builds the same full ML Dockerfile and requirements as local. The VM default
+is `Standard_B2s` (4 GiB RAM); check pricing before provisioning. Existing explicit
+`vm_size` overrides in private tfvars still take precedence and should provide at
+least 4 GiB. ML code, models and dependency pins are unchanged.
+
 ```bash
 # Run from deploy/azure/terraform/ after selecting the intended Azure subscription.
 az login

@@ -17,6 +17,9 @@ subscription_id = "00000000-0000-0000-0000-000000000000"
 
 location = "centralindia"
 
+# Same full ML dependencies as local. Use at least 4 GiB RAM; check pricing.
+vm_size = "Standard_B2s"
+
 # Globally unique within the region; becomes <label>.centralindia.cloudapp.azure.com
 # and therefore the HTTPS name of the site. Leave commented for a random suffix.
 # dns_label = "yci-demo"
@@ -46,10 +49,9 @@ llm_base_url = "https://api.openai.com/v1"
 llm_api_key  = ""
 llm_model    = "gpt-4o-mini"
 
-# searxng | duckduckgo | none. The SearXNG container needs ~200 MiB, which a
-# 1 GiB VM running everything else does not have — hence duckduckgo here.
+# searxng | duckduckgo | none. SearXNG is optional and needs roughly 200 MiB extra.
 web_search_provider = "duckduckgo"
-# compose_profiles  = ["searxng"]   # only on a larger vm_size
+# compose_profiles  = ["searxng"]
 
 # Encrypts users' saved API keys before they reach MySQL. Left empty, Terraform
 # generates one: terraform output -raw app_secret_key

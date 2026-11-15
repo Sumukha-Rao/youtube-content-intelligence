@@ -45,13 +45,13 @@ variable "tags" {
 
 variable "vm_size" {
   description = <<-EOT
-    VM size. Standard_B2ats_v2 and Standard_B1s are both inside the 750 free hours;
-    B2ats_v2 gives 2 vCPUs at the same 1 GiB of RAM, so the image build is roughly
-    twice as fast. Check availability first:
-      az vm list-skus --location <region> --size Standard_B2ats --all -o table
+    VM size for the full local ML stack. Standard_B2s has 2 vCPUs and 4 GiB RAM;
+    use at least 4 GiB rather than reducing ML dependencies to fit a 1 GiB host.
+    Check regional availability and pricing before deployment:
+      az vm list-skus --location <region> --size Standard_B2s --all -o table
   EOT
   type        = string
-  default     = "Standard_B2ats_v2"
+  default     = "Standard_B2s"
 }
 
 variable "admin_username" {
@@ -104,7 +104,7 @@ variable "dns_label" {
 }
 
 variable "swap_size_gb" {
-  description = "Swap file created on first boot. 1 GiB of RAM with no swap OOMs during the Maven build."
+  description = "Swap file created on first boot for build and runtime memory headroom."
   type        = number
   default     = 4
 }
@@ -232,8 +232,7 @@ variable "load_schema" {
 variable "compose_profiles" {
   description = <<-EOT
     Compose profiles to enable, e.g. ["searxng"] for the private metasearch
-    instance. SearXNG needs roughly 200 MiB, which a 1 GiB VM running everything
-    else does not have — only worth it on a larger vm_size.
+    instance. Budget roughly 200 MiB in addition to the full ML service and app.
   EOT
   type        = list(string)
   default     = []

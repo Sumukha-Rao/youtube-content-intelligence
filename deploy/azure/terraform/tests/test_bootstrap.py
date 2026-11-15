@@ -137,6 +137,22 @@ class BootstrapTest(unittest.TestCase):
         self.assertEqual("false", backend["SMTP_AUTH"])
         self.assertEqual("false", backend["SMTP_STARTTLS"])
 
+    def test_azure_uses_the_same_full_ml_build_as_local(self):
+        local = yaml.safe_load((ROOT / "docker-compose.yml").read_text())
+        azure = yaml.safe_load((ROOT / "deploy/azure/docker-compose.azure.yml").read_text())
+        local_build = local["services"]["ml-service"]["build"]
+        if isinstance(local_build, str):
+            local_build = {"context": local_build}
+        azure_build = azure["services"]["ml-service"]["build"]
+        local_context = (ROOT / local_build["context"]).resolve()
+        azure_context = (ROOT / "deploy/azure" / azure_build["context"]).resolve()
+        self.assertEqual(local_context, azure_context)
+        self.assertEqual(local_build.get("dockerfile", "Dockerfile"), azure_build["dockerfile"])
+        dockerfile = (azure_context / azure_build["dockerfile"]).read_text()
+        self.assertIn("COPY requirements.txt", dockerfile)
+        self.assertNotIn("requirements-lite.txt", dockerfile)
+        self.assertEqual("2560m", azure["services"]["ml-service"]["mem_limit"])
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

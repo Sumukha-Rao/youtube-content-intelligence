@@ -3,10 +3,10 @@
 #
 # Two billable resources and the plumbing between them:
 #
-#     Internet ──HTTPS──▶ Azure VM (Ubuntu 24.04, 1 GiB)
+#     Internet ──HTTPS──▶ Azure VM (Ubuntu 24.04, at least 4 GiB)
 #                           caddy      TLS, /api/* → backend, /* → frontend
 #                           backend    Spring Boot
-#                           ml-service FastAPI, Dockerfile.lite
+#                           ml-service FastAPI, same full Dockerfile as local
 #                           frontend   nginx (static)
 #                             │
 #                             └──TLS:3306──▶ Azure Database for MySQL Flexible Server
@@ -178,8 +178,8 @@ resource "azurerm_network_interface" "vm" {
 # ─────────────────────────────────────────────────────────────────────────────
 # Database
 #
-# Managed rather than a container on the VM: MySQL would eat ~440 MB of the box's
-# 1 GiB, and the B1ms server is free for 12 months.
+# Managed rather than a container on the VM, leaving memory for the full ML stack.
+# Check the subscription's managed-database allowance and pricing separately.
 # ─────────────────────────────────────────────────────────────────────────────
 
 resource "azurerm_mysql_flexible_server" "db" {
