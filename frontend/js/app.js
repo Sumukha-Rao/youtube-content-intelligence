@@ -235,6 +235,7 @@
   }
 
   function showResult(run) {
+    state.displayedRunId = run.id;
     hide(el("no-results"));
     show(el("result-box"));
     if (run.recommendations && Array.isArray(run.recommendations.ideas)) {
@@ -473,6 +474,46 @@
     el("progress-msg").textContent = message || "Working…";
   }
 
+  /* ---------------- email the displayed ideas ---------------- */
+
+  const mailModal = new bootstrap.Modal(el("send-mail-modal"));
+  let emailRunId = null;
+  let sendingMail = false;
+  el("btn-send-mail").onclick = () => {
+    if (sendingMail || !state.displayedRunId) return;
+    emailRunId = state.displayedRunId;
+    el("send-mail-email").value = (state.home.settings && state.home.settings.notifyEmail)
+      || (state.home.user && state.home.user.email) || "";
+    inlineMsg(el("send-mail-message"), "");
+    mailModal.show();
+  };
+  el("send-mail-modal").addEventListener("shown.bs.modal", () => el("send-mail-email").focus());
+  el("send-mail-form").onsubmit = guard(async (event) => {
+    event.preventDefault();
+    if (sendingMail || !emailRunId) return;
+    const input = el("send-mail-email");
+    input.value = input.value.trim();
+    if (!el("send-mail-form").reportValidity()) return;
+    sendingMail = true;
+    busy(el("send-mail-submit"), true, "Sending…");
+    el("btn-send-mail").disabled = true;
+    input.disabled = true;
+    inlineMsg(el("send-mail-message"), "");
+    try {
+      const response = await API.post("/api/ideas/runs/" + emailRunId + "/email", { email: input.value });
+      mailModal.hide();
+      toast(response.message, "success");
+    } catch (err) {
+      if (err instanceof API.AuthError) throw err;
+      inlineMsg(el("send-mail-message"), err.message);
+    } finally {
+      sendingMail = false;
+      busy(el("send-mail-submit"), false);
+      el("btn-send-mail").disabled = false;
+      input.disabled = false;
+    }
+  });
+
   /* ---------------- prompt panel ---------------- */
 
   el("btn-view-prompt").onclick = () => {
@@ -543,7 +584,8 @@
     el("set-llm-model").placeholder = d.llmModel || "gpt-4o-mini";
     el("set-llm-status").innerHTML = keyStatus(
       settings.llmApiKeySet, settings.llmApiKeyPreview,
-      d.llmConfigured ? "Using the server's model key" : "No model key anywhere — runs will fail");
+      customLlmEndpoint(settings) ? "Add a key for your selected provider"
+        : d.llmConfigured ? "Using the server's model key" : "No model key anywhere — runs will fail");
 
     el("set-search-provider").value = settings.webSearchProvider || "";
     el("set-searxng-url").value = settings.searxngBaseUrl || "";
@@ -562,6 +604,12 @@
     return isSet
       ? '<span class="pill pill-ok">Your key ' + esc(preview) + "</span>"
       : '<span class="pill pill-muted">' + esc(fallbackText) + "</span>";
+  }
+
+  function customLlmEndpoint(settings) {
+    const normalize = (value) => String(value || "").trim().replace(/\/+$/, "");
+    return !!normalize(settings.llmBaseUrl)
+      && normalize(settings.llmBaseUrl) !== normalize((settings.defaults || {}).llmBaseUrl);
   }
 
   /** POST /api/settings/test/<target> — always answers, never throws for a bad key. */
@@ -596,7 +644,10 @@
       patch[field] = "";
       state.settings = await API.put("/api/settings", patch);
       renderApiPane(state.settings);
-      inlineMsg(el(msgId), "Cleared — the server's configuration is used again.", "success");
+      const message = field === "llmApiKey" && customLlmEndpoint(state.settings)
+        ? "Key cleared. Add a key for your provider, or clear the provider URL to use the server default."
+        : "Cleared — the server's configuration is used again.";
+      inlineMsg(el(msgId), message, "success");
     });
   }
 

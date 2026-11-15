@@ -7,8 +7,14 @@ import com.yci.service.credentials.ApiConfig;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
+import org.springframework.http.client.reactive.ReactorClientHttpConnector;
 import org.springframework.web.reactive.function.client.WebClient;
+import org.springframework.web.reactive.function.client.WebClientRequestException;
+import reactor.netty.http.client.HttpClient;
+import reactor.util.retry.Retry;
 
+import java.io.IOException;
+import java.io.InterruptedIOException;
 import java.time.Duration;
 import java.util.List;
 import java.util.Map;
@@ -36,8 +42,12 @@ public class LlmClient {
     private final ObjectMapper mapper = new ObjectMapper();
 
     public LlmClient(WebClient.Builder builder) {
-        // No base URL: every request targets whichever provider the caller resolved.
-        this.client = builder.build();
+        // Ingestion can take minutes between model calls. Do not reuse a pooled
+        // connection that the provider may have closed while we fetched comments.
+        // Disable Netty's implicit retry so the explicit retry below is the only one.
+        this.client = builder.clone()
+                .clientConnector(new ReactorClientHttpConnector(HttpClient.newConnection().disableRetry(true)))
+                .build();
     }
 
     /** Send a system + user message pair and return the assistant's text. */
@@ -62,6 +72,12 @@ public class LlmClient {
                     .bodyValue(body)
                     .retrieve()
                     .bodyToMono(String.class)
+                    .retryWhen(Retry.backoff(1, Duration.ofMillis(300))
+                            .filter(LlmClient::connectionFailed)
+                            .doBeforeRetry(retry -> log.warn("Model connection interrupted; retrying once for {}",
+                                    cfg.model()))
+                            .onRetryExhaustedThrow((spec, retry) -> retry.failure()))
+                    // One deadline covers both attempts, including the backoff.
                     .timeout(Duration.ofSeconds(cfg.timeoutSeconds()))
                     .block();
         } catch (Exception e) {
@@ -94,6 +110,21 @@ public class LlmClient {
         } catch (Exception e) {
             throw new LlmServiceException("Could not read the model response: " + e.getMessage(), e);
         }
+    }
+
+    private static boolean connectionFailed(Throwable error) {
+        // Authentication, quota, model validation and HTTP errors require a real
+        // fix, not a repeated request. Do not repeat a timed-out generation either.
+        if (!(error instanceof WebClientRequestException)) return false;
+        for (Throwable cause = error; cause != null; cause = cause.getCause()) {
+            if (cause instanceof InterruptedIOException
+                    || cause instanceof java.util.concurrent.TimeoutException
+                    || cause instanceof io.netty.handler.timeout.TimeoutException) return false;
+        }
+        for (Throwable cause = error; cause != null; cause = cause.getCause()) {
+            if (cause instanceof IOException) return true;
+        }
+        return false;
     }
 
     /** Tolerates a base URL given with or without a trailing slash. */

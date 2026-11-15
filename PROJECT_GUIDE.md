@@ -462,7 +462,17 @@ curl -sI http://localhost:8081/js/api.js | grep -i cache-control
 
 ### 5.4 Idea generation fails with `The model did not respond`
 
-Either the endpoint is unreachable or the model exceeded `LLM_TIMEOUT_SECONDS`.
+Inspect the rest of the error to distinguish a dropped connection, an HTTP
+rejection, and a request exceeding `LLM_TIMEOUT_SECONDS`.
+
+`Connection reset by peer` means the provider connection was interrupted. The
+model client opens a fresh connection for each request and retries a transport
+failure once, within the original timeout. HTTP errors (including authentication,
+quota and rate-limit errors) and timed-out generations are not retried. A provider
+can still process a request before its connection drops, so a recovery attempt
+may incur another provider charge.
+
+For a local Ollama endpoint, check reachability from inside the backend:
 
 ```bash
 docker exec yci-backend sh -c 'curl -s -m 5 -o /dev/null -w "%{http_code}\n" \
@@ -583,6 +593,18 @@ For a database with schema updates disabled, inspect its columns and apply
 [`002_competitor_suggestions_and_summaries.sql`](database/migrations/002_competitor_suggestions_and_summaries.sql)
 once when those columns are absent. Do not reapply after Hibernate or a previous
 migration has added them. Fresh databases use `database/schema.sql`.
+
+If idea generation fails with a duplicate `youtube_comment_id` in
+`competitor_comments`, apply
+[`003_competitor_comment_uniqueness.sql`](database/migrations/003_competitor_comment_uniqueness.sql)
+to the existing MySQL database. Older installations may retain a global unique
+index even after Hibernate adds the correct per-video index. This repeatable
+migration preserves comments and keeps duplicate protection per local video,
+allowing multiple users to track the same competitor. Restarting containers or
+reloading `schema.sql` alone does not remove the old index.
+
+The migration can be verified against disposable databases in the Compose MySQL
+service with `python3 database/tests/test_competitor_comment_migration.py`.
 
 ---
 

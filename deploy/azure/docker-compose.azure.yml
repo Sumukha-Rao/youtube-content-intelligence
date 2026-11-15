@@ -65,6 +65,8 @@ services:
       SMTP_PORT: ${SMTP_PORT:-587}
       SMTP_USERNAME: ${SMTP_USERNAME:-}
       SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      SMTP_AUTH: ${SMTP_AUTH:-true}
+      SMTP_STARTTLS: ${SMTP_STARTTLS:-true}
       NOTIFY_FROM: ${NOTIFY_FROM:-yci@localhost}
       NOTIFY_CRON: ${NOTIFY_CRON:-0 0 * * * *}
       APP_URL: ${APP_URL:-https://${SITE_ADDRESS}}

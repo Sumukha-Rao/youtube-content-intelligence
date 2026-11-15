@@ -178,7 +178,8 @@
         <div class="d-flex align-items-center flex-wrap gap-2 mb-3">
           <h4 class="mb-0">Your video ideas</h4>
           <span class="badge badge-soft" id="result-meta"></span>
-          <button class="btn btn-sm btn-ghost ms-auto" id="btn-view-prompt" type="button">
+          <button class="btn btn-sm btn-outline-primary ms-auto" id="btn-send-mail" type="button">Send mail</button>
+          <button class="btn btn-sm btn-ghost" id="btn-view-prompt" type="button">
             View full prompt
           </button>
         </div>
@@ -211,6 +212,28 @@
       </p>
       <button class="btn btn-sm btn-ghost mb-3" id="btn-copy-prompt" type="button">Copy</button>
       <pre class="prompt-pre" id="prompt-text"></pre>
+    </div>
+  </div>
+
+  <!-- ---------------- send generated ideas ---------------- -->
+  <div class="modal fade" id="send-mail-modal" tabindex="-1" aria-labelledby="send-mail-title" aria-hidden="true">
+    <div class="modal-dialog">
+      <form class="modal-content" id="send-mail-form">
+        <div class="modal-header">
+          <h5 class="modal-title" id="send-mail-title">Send your ideas</h5>
+          <button type="button" class="btn-close" aria-label="Close email dialog" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <p class="text-muted">Email the generated ideas and outlines shown on this page.</p>
+          <label class="form-label" for="send-mail-email">Recipient email</label>
+          <input class="form-control" id="send-mail-email" type="email" name="email" autocomplete="email" maxlength="254" required placeholder="you@example.com">
+          <div id="send-mail-message" class="mt-3" role="status" aria-live="polite"></div>
+        </div>
+        <div class="modal-footer">
+          <button class="btn btn-ghost" type="button" data-bs-dismiss="modal">Cancel</button>
+          <button class="btn btn-primary" id="send-mail-submit" type="submit">Send mail</button>
+        </div>
+      </form>
     </div>
   </div>
 
@@ -352,14 +375,15 @@
                 <div class="col-sm-5 d-flex gap-2">
                   <button class="btn btn-outline-brand flex-grow-1" id="set-llm-test" type="button">Test</button>
                   <button class="btn btn-ghost" id="set-llm-clear" type="button"
-                          title="Forget my key and use the server's">Clear</button>
+                          title="Forget my saved model key">Clear</button>
                 </div>
               </div>
               <div class="key-status" id="set-llm-status"></div>
               <div class="form-text">
                 Any OpenAI-compatible <code>/chat/completions</code> endpoint: OpenAI, OpenRouter,
                 Together, or a local Ollama at <code>http://host.docker.internal:11434/v1</code>
-                (any non-empty key). Prefer a non-reasoning model.
+                (any non-empty key). A different provider URL requires its own key.
+                Prefer a non-reasoning model.
               </div>
               <div id="set-llm-msg" class="mt-2"></div>
 

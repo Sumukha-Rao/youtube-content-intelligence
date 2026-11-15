@@ -1,6 +1,9 @@
 package com.yci.dto;
 
+import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Pattern;
+import jakarta.validation.constraints.Size;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -11,6 +14,13 @@ import java.util.List;
  */
 public final class Dto {
     private Dto() {}
+
+    public record SendIdeasEmailRequest(
+            @NotBlank(message = "email is required")
+            @Email(message = "enter a valid email address")
+            @Size(max = 254)
+            @Pattern(regexp = "^[^\\s<>@,;]+@[^\\s<>@,;]+$", message = "enter one email address")
+            String email) {}
 
     // ---- auth ----
     public record SignupRequest(String name,
@@ -48,6 +58,8 @@ public final class Dto {
      *
      * Update semantics for every optional field: {@code null} leaves it unchanged,
      * {@code ""} clears it back to the server default, anything else replaces it.
+     * A custom model endpoint requires its own key; clearing that key never
+     * forwards the server's key to the custom endpoint.
      */
     public record SettingsDto(String retrievalMode, Integer retrievalValue,
                               Integer ownCommentLimit, Integer competitorCommentLimit,

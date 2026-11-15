@@ -66,13 +66,19 @@ public class ApiConfigService {
         String ownBase = s == null ? null : s.getLlmBaseUrl();
         String ownModel = s == null ? null : s.getLlmModel();
 
-        // Any one of the three being set marks the LLM as the user's own: a user may
-        // point at a local Ollama (no real key) or just override the model name.
+        // A different endpoint must bring its own key. Otherwise a signed-in user
+        // could point at a server they control and receive the server's API key
+        // through the Authorization header. Model-only overrides can still use
+        // the default endpoint and key; local providers can use a dummy own key.
         boolean userProvided = notBlank(ownKey) || notBlank(ownBase) || notBlank(ownModel);
+        boolean differentEndpoint = notBlank(ownBase)
+                && !normalizedBase(ownBase).equals(normalizedBase(server.getBaseUrl()));
+        String resolvedKey = notBlank(ownKey) ? ownKey.trim()
+                : differentEndpoint ? null : server.getApiKey();
 
         return new ApiConfig.Llm(
                 notBlank(ownBase) ? ownBase.trim() : server.getBaseUrl(),
-                notBlank(ownKey) ? ownKey.trim() : server.getApiKey(),
+                resolvedKey,
                 notBlank(ownModel) ? ownModel.trim() : server.getModel(),
                 server.getTimeoutSeconds(),
                 server.getMaxPromptChars(),
@@ -94,5 +100,9 @@ public class ApiConfigService {
 
     private static boolean notBlank(String s) {
         return s != null && !s.isBlank();
+    }
+
+    private static String normalizedBase(String value) {
+        return value == null ? "" : value.trim().replaceAll("/+$", "");
     }
 }

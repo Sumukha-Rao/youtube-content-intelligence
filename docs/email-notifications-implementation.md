@@ -39,7 +39,7 @@ The following example uses Gmail with STARTTLS on port 587, matching the applica
 
 2. Open the project’s existing .env file privately. Replace the placeholders below with your own sender credentials. Do not paste the password into chat or commit it to Git.
 
-3. Set NOTIFY_FROM to the authenticated sender address or an address your provider explicitly allows.
+3. Set NOTIFY_FROM to the authenticated sender address or an address your provider explicitly allows. A display name needs an address too: `NOTIFY_FROM="Recommendation alert <youraddress@gmail.com>"`. A name alone, such as `Recommendation alert`, causes `Could not parse mail` before SMTP delivery.
 
 4. Set APP_URL to the URL recipients can actually open. localhost works only on the machine running the application.
 
@@ -141,7 +141,7 @@ This implementation checks a rolling interval rather than a user-selected clock 
 
 Leaving SMTP_HOST blank prevents sending, but the scheduler can still generate ideas for opted-in accounts before delivery is skipped. Keep the notification toggle off until SMTP is ready.
 
-last_notified_at is an attempt marker in this version, not a guarantee of successful delivery. Changing SMTP credentials does not automatically retry an already-stamped attempt. There is no send-now endpoint or independent delivery retry queue.
+last_notified_at is an attempt marker in this version, not a guarantee of successful delivery. Changing SMTP credentials does not automatically retry an already-stamped attempt. Completed ideas can also be sent manually from the results page using **Send mail**. Enter a recipient email and submit; this uses `POST /api/ideas/runs/{id}/email` and the same SMTP configuration. Manual sending reuses the saved run and does not change notification preferences or the scheduler’s attempt timestamps. There is no independent delivery retry queue.
 
 Email is plain text and may show Markdown markers from the generated result. On-demand transcript summaries remain in the app. There is no per-user time-zone or exact-send-time field, and multiple backend replicas need coordination to avoid duplicate scheduled delivery.
 
@@ -163,7 +163,7 @@ Use backend logs and the recipient’s inbox together to diagnose delivery. Keep
 
 ### If you use a local mail relay
 
-application.yml reads SMTP_AUTH and SMTP_STARTTLS, but the current Compose backend environment does not forward those optional variables. If your development relay needs false values, explicitly add the following mappings under backend then environment before setting them in .env. Keep real external mail transport authenticated and encrypted.
+Both Compose files forward SMTP_AUTH and SMTP_STARTTLS. If your development relay requires false values, set them in .env and recreate the backend. External mail delivery normally uses the default true values. SMTP connections have a 10-second connection timeout and 15-second read/write timeouts so an unavailable server cannot leave the Send mail request waiting indefinitely.
 
 ```
 SMTP_AUTH: ${SMTP_AUTH:-true}
@@ -174,7 +174,7 @@ SMTP_STARTTLS: ${SMTP_STARTTLS:-true}
 
 Add isolated tests using a mocked JavaMailSender for the recipient, sender, subject, body, successful handoff and send failures. Test cadence with an injected clock, and exercise missing SMTP and failed-generation paths without sending real messages.
 
-For production, consider explicit SMTP connection and write timeouts, an early SMTP readiness check before expensive scheduled generation, separate delivery-attempt and success timestamps, and delivery retries that reuse a completed run. These are improvements to the existing services; another ML model or messaging platform is not required.
+For production, consider an early SMTP readiness check before expensive scheduled generation, separate delivery-attempt and success timestamps, and delivery retries that reuse a completed run. These are improvements to the existing services; another ML model or messaging platform is not required.
 
 ### Code references
 

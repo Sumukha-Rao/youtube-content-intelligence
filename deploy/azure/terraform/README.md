@@ -48,6 +48,44 @@ service together for verified competitor suggestions, persisted video associatio
 caption summaries. Existing deployments with automatic schema updates disabled need
 [migration 002](../../../database/migrations/002_competitor_suggestions_and_summaries.sql)
 only if its columns are missing. Fresh schema loading does not upgrade a populated DB.
+Older databases must also apply the repeatable
+[migration 003](../../../database/migrations/003_competitor_comment_uniqueness.sql)
+if they retain the global competitor-comment unique key. Hibernate `update` adds
+the scoped key but does not remove the obsolete global key.
+
+## Verify without provisioning
+
+From this directory:
+
+```bash
+terraform init -backend=false
+terraform fmt -check
+terraform validate
+python3 tests/test_bootstrap.py
+```
+
+The bootstrap tests require Terraform, Docker Compose, the `busybox` image and
+PyYAML. They render cloud-init with synthetic values, check shell syntax, confirm
+private service ports, and round-trip quotes, dollars, backslashes and newlines
+through a disposable container. They do not contact Azure or start the application.
+
+For a live read-only plan, select an **Enabled** subscription with `az login` and
+`az account set --subscription ...`, populate `terraform.tfvars`, then run:
+
+```bash
+ARM_RESOURCE_PROVIDER_REGISTRATIONS=none terraform plan -input=false
+```
+
+This disables automatic provider registration during verification. Required
+resource providers must already be registered before deployment. A subscription
+in `Warned` state cannot create resources; resolve its account/billing status or
+select an enabled subscription before deployment. See
+[Azure subscription states](https://learn.microsoft.com/en-us/azure/cost-management-billing/manage/subscription-states).
+
+`validate` and the bootstrap tests do not verify subscription access, regional
+capacity, VM/MySQL quotas, resource naming availability, first boot or public TLS.
+An `apply` and a successful deployed `/api/health` check are still required to
+confirm a live deployment.
 
 The frontend remains static and includes the refreshed creator workspace. Email setup
 is optional; use the [SMTP guide](../../../docs/email-notifications-implementation.md)

@@ -46,6 +46,11 @@ public class NotificationService {
             log.info("User {} has notifications on but no email address — skipping", settings.getUserId());
             return false;
         }
+        return sendDigest(to, run);
+    }
+
+    /** Sends an existing run to an explicitly selected recipient. */
+    public boolean sendDigest(String to, IdeaRun run) {
         if (!isConfigured()) {
             log.info("SMTP is not configured (spring.mail.host unset) — digest for {} not sent", to);
             return false;

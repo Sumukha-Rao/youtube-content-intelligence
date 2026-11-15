@@ -209,6 +209,11 @@ Every account can override the server's configuration for itself under
 | LLM base URL / model / key | the server's `LLM_*` | your provider, your model, your bill |
 | Web search provider + SearXNG URL | the server's provider | your choice, your instance (search stays off until enabled in Reading) |
 
+A model provider URL different from the server default requires your own model key.
+The server's key is never sent to another endpoint. For a local provider without
+authentication, save any non-empty dummy key. A model-only override can use the
+server's existing endpoint and key.
+
 Three details make this safe to use:
 
 - **Keys are write-only.** A saved key is never sent back to the browser; the panel shows
@@ -236,6 +241,7 @@ GET    /api/settings             PUT
 POST   /api/settings/test/{youtube|llm|websearch}   check the saved credentials
 POST   /api/ideas/generate       queue a run  ->  { runId }
 GET    /api/ideas/runs/{id}      poll: QUEUED | RUNNING | COMPLETED | FAILED
+POST   /api/ideas/runs/{id}/email  send a completed run to {"email":"you@example.com"}
 GET    /api/ideas/latest | /history
 GET    /api/ideas/runs/{runId}/ideas/{ideaId}/related-videos
 GET    /api/ideas/runs/{runId}/ideas/{ideaId}/transcript-summary
