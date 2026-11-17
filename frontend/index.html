@@ -39,7 +39,7 @@
     <div class="auth-heading mb-4">
       <p class="eyebrow">Your creator workspace</p>
       <h2 id="auth-heading">Welcome back.</h2>
-      <p class="text-muted mb-0" id="auth-subheading">A little insight. A better next video.</p>
+      <p class="text-muted mb-0" id="auth-subheading">Pick up where you left off.</p>
     </div>
 
     <div class="card auth-card">
@@ -95,8 +95,8 @@
       el("password-hint").classList.toggle("hidden", !signup);
       el("submit").textContent = signup ? "Create account" : "Sign in";
       el("password").setAttribute("autocomplete", signup ? "new-password" : "current-password");
-      el("auth-heading").textContent = signup ? "Your next chapter." : "Welcome back.";
-      el("auth-subheading").textContent = signup ? "Create a workspace for ideas worth making." : "A little insight. A better next video.";
+      el("auth-heading").textContent = signup ? "Make yourself at home." : "Welcome back.";
+      el("auth-subheading").textContent = signup ? "Save your channels and start planning your next video." : "Pick up where you left off.";
       el("msg").innerHTML = "";
     }
     el("tab-login").onclick = () => setMode("login");

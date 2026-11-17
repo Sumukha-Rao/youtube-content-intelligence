@@ -34,7 +34,7 @@ class BootstrapTest(unittest.TestCase):
             llm_api_key="synthetic-model-key", llm_model="test-model", llm_timeout_seconds=900,
             llm_max_prompt_chars=24000, web_search_provider="duckduckgo", web_search_base_url="",
             web_search_fallback=True, searxng_secret="synthetic-search-secret", auth_token_ttl_days=30,
-            smtp_host="smtp.example.com", smtp_port=587, smtp_username="sender@example.com",
+            smtp_host="smtp.example.com", smtp_port=587, smtp_auth=True, smtp_starttls=True, smtp_ssl=False, smtp_username="sender@example.com",
             smtp_password="synthetic-mail-password", notify_from="Ideas <sender@example.com>",
             notify_cron="0 0 * * * *",
         )
@@ -131,11 +131,13 @@ class BootstrapTest(unittest.TestCase):
         self.assertEqual("searxng", self.compose(files["/opt/yci/.env"])["services"]["backend"]["environment"]["WEB_SEARCH_PROVIDER"])
 
     def test_smtp_relay_overrides_reach_backend(self):
-        _, _, files = self.render()
-        content = files["/opt/yci/.env"] + "\nSMTP_AUTH=false\nSMTP_STARTTLS=false\n"
+        _, _, files = self.render(smtp_auth=False, smtp_starttls=False, smtp_ssl=True, smtp_port=465)
+        content = files["/opt/yci/.env"]
         backend = self.compose(content)["services"]["backend"]["environment"]
         self.assertEqual("false", backend["SMTP_AUTH"])
         self.assertEqual("false", backend["SMTP_STARTTLS"])
+        self.assertEqual("true", backend["SMTP_SSL"])
+        self.assertEqual("465", backend["SMTP_PORT"])
 
     def test_azure_uses_the_same_full_ml_build_as_local(self):
         local = yaml.safe_load((ROOT / "docker-compose.yml").read_text())

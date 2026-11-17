@@ -196,7 +196,7 @@
     if (!c) {
       box.innerHTML = `
         <p class="text-muted mb-2">No channel connected.</p>
-        <button class="btn btn-sm btn-outline-danger" id="add-channel-inline">Add your channel</button>`;
+        <button class="btn btn-sm btn-outline-brand" id="add-channel-inline">Add your channel</button>`;
       el("add-channel-inline").onclick = openSettings;
       return;
     }
@@ -213,7 +213,7 @@
     if (!state.competitors.length) {
       box.innerHTML = `
         <p class="text-muted mb-2">No competitor channels yet.</p>
-        <button class="btn btn-sm btn-outline-danger" id="add-comp-inline">Add a competitor</button>`;
+        <button class="btn btn-sm btn-outline-brand" id="add-comp-inline">Add a competitor</button>`;
       el("add-comp-inline").onclick = openSettings;
       return;
     }
@@ -347,12 +347,12 @@
 
   function summaryHtml(summary) {
     if (!summary) return "";
-    if (summary.status === "unavailable") return '<p class="mt-3">No transcript available</p>';
+    if (summary.status === "unavailable") return '<div class="transcript-feedback"><strong>No transcript available</strong><p class="small text-muted mb-0">We couldn’t find published captions for these videos. You can check the source videos on YouTube or try again later.</p></div>';
     const list = (items) => '<ol>' + (items || []).map((p) => '<li>' + esc(p) + '</li>').join("") + '</ol>';
     return `<div class="transcript-panel"><p class="eyebrow">From the source videos</p><h5>Transcript Summary</h5>
       <h6>Topic</h6><p>${esc(summary.idea_title)}</p>
       <h6>Summary</h6><p>${esc(summary.summary)}</p>
-      <h6>What to Speak About</h6>${list(summary.what_to_speak)}
+      <h6>Talking points</h6>${list(summary.what_to_speak)}
       <h6>Important Concepts</h6>${list(summary.important_concepts)}
       <h6>Suggested Structure</h6>${list(summary.suggested_structure)}
       <h6>Sources</h6>${videoLinks(summary.sources)}
@@ -366,7 +366,7 @@
         <div class="idea-card-top"><span class="idea-number">${String(Number(idea.id) + 1).padStart(2, "0")}</span><span class="idea-label">Recommended idea</span></div>
         <h3>${esc(idea.title)}</h3>
         <p class="idea-description">${esc(idea.description)}</p>
-        <div class="idea-reason"><h6>Why recommended</h6><p>${esc(idea.reason)}</p></div>
+        <div class="idea-reason"><h6>Why this could work</h6><p>${esc(idea.reason)}</p></div>
         <details class="idea-exploration"><summary>Explore the evidence and outline <span aria-hidden="true">＋</span></summary>
           <div class="idea-detail-grid"><section><h6>Evidence</h6><p>${esc(idea.evidence)}</p><h6>Angle</h6><p>${esc(idea.angle)}</p></section>
           <section><h6>Outline</h6><ul>${(idea.outline || []).map((p) => '<li>' + esc(p) + '</li>').join('')}</ul>
@@ -374,7 +374,7 @@
         </details>
         <div class="idea-sources"><h6>Related Videos</h6>${videoLinks(idea.related_videos)}</div>
         <div class="idea-actions"><button class="btn btn-outline-brand" data-summary>Get Transcript Summary</button>
-          <span>Build a speaking outline from available subtitles.</span></div>
+          <span>Uses published captions. Some videos may not have them.</span></div>
         <div data-summary-result aria-live="polite">${summaryHtml(idea.transcript_summary)}</div>
       </article>`).join("") + '<section class="first-idea-note"><span class="note-mark" aria-hidden="true">↗</span><div><h4>What to make first</h4><p>' + esc(data.what_to_make_first) + '</p></div></section>';
     el("result-body").querySelectorAll("[data-idea]").forEach((card) => {
@@ -383,7 +383,7 @@
       const idea = data.ideas.find((v) => String(v.id) === card.dataset.idea);
       button.onclick = guard(async () => {
         busy(button, true, "Fetching subtitles and summarizing…");
-        output.innerHTML = '<p class="small text-muted mt-2">Fetching subtitles and preparing your outline…</p>';
+        output.innerHTML = '<p class="small text-muted mt-2">Checking published captions, then preparing your outline. This can take a minute…</p>';
         try {
           const summary = await API.post(`/api/ideas/runs/${run.id}/ideas/${idea.id}/transcript-summary`);
           if (summary.status === "available") idea.transcript_summary = summary;

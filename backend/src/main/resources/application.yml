@@ -28,6 +28,8 @@ spring:
           connectiontimeout: 10000
           timeout: 15000
           writetimeout: 15000
+          ssl:
+            enable: ${SMTP_SSL:false}
           starttls:
             enable: ${SMTP_STARTTLS:true}
 

@@ -72,7 +72,11 @@ def test_endpoint_mixed_success_and_failure_and_deduplication():
     app = FastAPI()
     app.include_router(router)
     with patch("app.transcripts.YouTubeTranscriptApi") as factory:
-        factory.return_value.list.side_effect = [TranscriptsDisabled(VIDEO), RequestBlocked("12345678901")]
+        def fail(video_id):
+            if video_id == VIDEO:
+                raise TranscriptsDisabled(video_id)
+            raise RequestBlocked(video_id)
+        factory.return_value.list.side_effect = fail
         result = TestClient(app).post("/ml/transcripts", json={"video_ids": [VIDEO, VIDEO, "12345678901"]})
         assert result.status_code == 200
         assert [v["status"] for v in result.json()["videos"]] == ["unavailable", "error"]
@@ -108,3 +112,35 @@ def test_empty_caption_response_is_not_reported_as_nonexistent_subtitles():
     api = Mock()
     api.list.return_value.find_transcript.return_value.fetch.return_value = fetched("   ")
     assert fetch_transcript(api, VIDEO, "en")["status"] == "error"
+
+
+def test_native_language_captions_work_when_english_is_absent():
+    from youtube_transcript_api import TranscriptList
+    track = SimpleNamespace(language_code="ja", fetch=lambda: fetched("Native captions", "ja"))
+    api = SimpleNamespace(list=lambda _: TranscriptList(VIDEO, {}, {"ja": track}, []))
+    result = fetch_transcript(api, VIDEO, "en")
+    assert result["status"] == "available"
+    assert result["language"] == "ja"
+
+
+def test_failed_manual_track_falls_back_to_generated_track():
+    from youtube_transcript_api import TranscriptList
+    broken = SimpleNamespace(language_code="en", fetch=Mock(side_effect=ValueError("empty track")))
+    generated = SimpleNamespace(language_code="en", fetch=lambda: fetched("Generated captions"))
+    api = SimpleNamespace(list=lambda _: TranscriptList(VIDEO, {"en": broken}, {"en": generated}, []))
+    assert fetch_transcript(api, VIDEO, "en")["text"] == "Generated captions"
+
+
+def test_language_and_caption_whitespace_are_normalized():
+    api = Mock()
+    api.list.return_value.find_transcript.return_value.fetch.return_value = fetched("Hello\n  world", "pt-BR")
+    assert fetch_transcript(api, VIDEO, " PT_br ")["text"] == "Hello world"
+    assert api.list.return_value.find_transcript.call_args_list[0].args[0] == ["pt-br"]
+
+
+def test_normalized_region_prefers_exact_track_over_other_regions():
+    from youtube_transcript_api import TranscriptList
+    portugal = SimpleNamespace(language_code="pt-PT", fetch=lambda: fetched("Portugal", "pt-PT"))
+    brazil = SimpleNamespace(language_code="pt-BR", fetch=lambda: fetched("Brazil", "pt-BR"))
+    api = SimpleNamespace(list=lambda _: TranscriptList(VIDEO, {"pt-PT": portugal, "pt-BR": brazil}, {}, []))
+    assert fetch_transcript(api, VIDEO, " PT_br ")["language"] == "pt-BR"

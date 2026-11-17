@@ -109,7 +109,7 @@ for (const status of ['available', 'unavailable', 'error']) {
       const text = card.querySelector('[data-summary-result]').textContent;
       assert(!button.disabled);
       if (status === 'available') { assert.match(text, /Transcript Summary/); assert.match(text, /Explain producers/); assert.match(text, /Sources/); }
-      else if (status === 'unavailable') assert.equal(text, 'No transcript available');
+      else if (status === 'unavailable') assert.match(text, /No transcript available/);
       else { assert.match(text, /temporarily/); assert(!text.includes('No transcript available')); }
     } finally { app.close(); }
   });

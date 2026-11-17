@@ -111,16 +111,21 @@ public class RecommendationService {
         Set<String> received = new HashSet<>();
         List<MlClient.TranscriptVideo> available = new ArrayList<>();
         boolean failed = false;
+        boolean blocked = false;
         for (var video : response.videos()) {
             if (!expected.contains(video.video_id()) || !received.add(video.video_id())) {
                 throw new MlServiceException("Invalid subtitle service response. Please try again.");
             }
             if ("available".equals(video.status()) && video.text() != null && !video.text().isBlank()) available.add(video);
-            else if (!"unavailable".equals(video.status())) failed = true;
+            else if (!"unavailable".equals(video.status())) {
+                failed = true;
+                blocked |= video.message() != null && video.message().contains("blocked");
+            }
         }
         failed |= !received.equals(expected);
         if (available.isEmpty()) {
-            if (failed) throw new MlServiceException("Subtitle retrieval failed or was blocked. Please try again later.");
+            if (blocked) throw new MlServiceException("YouTube blocked caption requests from this server. Open the source videos to check their captions, or retry later.");
+            if (failed) throw new MlServiceException("Subtitle retrieval failed temporarily. Please try again later.");
             return unavailable(); // never cache absence: captions can be added later
         }
         var cfg = config.forUser(userId).llm();

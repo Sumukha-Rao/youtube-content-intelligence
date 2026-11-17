@@ -345,6 +345,24 @@ variable "smtp_port" {
   default     = 587
 }
 
+variable "smtp_auth" {
+  description = "Authenticate with the SMTP server. Disable only for a trusted relay."
+  type        = bool
+  default     = true
+}
+
+variable "smtp_starttls" {
+  description = "Upgrade SMTP to TLS (normally port 587). Disable for implicit TLS."
+  type        = bool
+  default     = true
+}
+
+variable "smtp_ssl" {
+  description = "Use implicit TLS, normally on port 465. Set smtp_starttls=false when enabled."
+  type        = bool
+  default     = false
+}
+
 variable "smtp_username" {
   description = "SMTP username."
   type        = string

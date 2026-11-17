@@ -98,3 +98,31 @@ and leave per-account notifications off until delivery is configured. After firs
 edit application environment values on the VM; changing tfvars alone does not reapply
 cloud-init. Free-offer eligibility and cost must be checked in the Azure portal; budget
 alerts do not enforce spending caps.
+
+
+### SMTP configuration
+
+Set `smtp_host`, `smtp_port`, `smtp_username`, `smtp_password`, and `notify_from`
+in your private `terraform.tfvars` (or `TF_VAR_…` environment variables). The sender
+must be allowed by your mail provider. For port 587, keep `smtp_auth = true`,
+`smtp_starttls = true`, `smtp_ssl = false`. For implicit TLS on port 465, use
+`smtp_starttls = false`, `smtp_ssl = true`. A trusted unauthenticated relay can
+use `smtp_auth = false`. These values flow into the backend through cloud-init
+and Compose. Credentials are sensitive Terraform inputs, but still exist in
+local state and VM custom data; keep those files private.
+
+**Existing VM:** cloud-init runs only on first boot and `custom_data` changes are
+ignored to preserve the VM. Updating tfvars and running `terraform apply` does
+not update a running app's environment. On the VM, edit `/opt/yci/.env` with the
+`SMTP_HOST`, `SMTP_PORT`, `SMTP_USERNAME`, `SMTP_PASSWORD`, `SMTP_AUTH`,
+`SMTP_STARTTLS`, `SMTP_SSL`, and `NOTIFY_FROM` values. Then run:
+
+```sh
+cd /opt/yci/app
+sudo install -m 0600 /opt/yci/.env .env
+sudo docker compose --env-file .env -f deploy/azure/docker-compose.azure.yml up -d --build backend
+```
+
+Use Settings → Notifications to check configuration, then send an existing idea
+run using the email button to verify delivery. Configuration status does not
+verify provider authentication or inbox delivery.

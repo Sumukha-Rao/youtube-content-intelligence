@@ -59,6 +59,10 @@ web_search_provider = "duckduckgo"
 
 # Email digests. Blank smtp_host saves each user's preference but sends nothing.
 # smtp_host     = "smtp.gmail.com"
+# smtp_port     = 587
+# smtp_auth     = true
+# smtp_starttls = true
+# smtp_ssl      = false # port 465: true, with smtp_starttls=false
 # smtp_username = "you@gmail.com"
 # smtp_password = "<app password>"
 # notify_from   = "you@gmail.com"

@@ -319,6 +319,9 @@ resource "azurerm_linux_virtual_machine" "vm" {
     auth_token_ttl_days  = var.auth_token_ttl_days
     smtp_host            = var.smtp_host
     smtp_port            = var.smtp_port
+    smtp_auth            = var.smtp_auth
+    smtp_starttls        = var.smtp_starttls
+    smtp_ssl             = var.smtp_ssl
     smtp_username        = var.smtp_username
     smtp_password        = var.smtp_password
     notify_from          = var.notify_from
