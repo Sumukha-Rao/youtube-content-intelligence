@@ -126,3 +126,10 @@ sudo docker compose --env-file .env -f deploy/azure/docker-compose.azure.yml up 
 Use Settings → Notifications to check configuration, then send an existing idea
 run using the email button to verify delivery. Configuration status does not
 verify provider authentication or inbox delivery.
+
+
+The ML Dockerfiles pin Debian Bookworm (`python:3.10-slim-bookworm`) so rebuilds
+keep a stable OS base. During live Azure verification, the floating `slim` image
+used OpenSSL 3.5 and timed out on PyPI TLS handshakes; the Bookworm image completed
+the same certificate-verified request successfully. Both builds retain their
+existing Python dependency sets.
